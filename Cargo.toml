@@ -1,0 +1,39 @@
+[package]
+name = "redmine-mcp-rs"
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Fast, dependency-light Model Context Protocol server for the Redmine REST API"
+license = "MIT"
+keywords = ["mcp", "redmine", "model-context-protocol", "cli"]
+categories = ["command-line-utilities", "api-bindings"]
+
+[[bin]]
+name = "redmine-mcp-rs"
+path = "src/main.rs"
+
+[dependencies]
+base64 = "0.22"
+dotenvy = "0.15"
+reqwest = { version = "0.12.28", default-features = false, features = ["json", "rustls-tls", "gzip"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1.54", features = [
+    "rt-multi-thread",
+    "macros",
+    "io-std",
+    "io-util",
+    "sync",
+    "time",
+] }
+url = "2.5"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+# Release builds already omit debug info. Opting out of Cargo's default
+# strip=debuginfo avoids depending on rust-objcopy being present.
+strip = "none"
