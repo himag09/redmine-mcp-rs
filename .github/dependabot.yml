@@ -6,9 +6,20 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      cargo:
+        patterns: ["*"]
 
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns: ["*"]
+    ignore:
+      # The workflow pins this action by toolchain branch (1.88.0), not by a
+      # semantic version; Dependabot's version bump would point at a branch
+      # that does not exist.
+      - dependency-name: "dtolnay/rust-toolchain"
