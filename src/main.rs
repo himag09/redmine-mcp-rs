@@ -8,7 +8,7 @@ use serde_json::Value;
 use redmine_mcp_rs::config::{Config, StartupInfo};
 use redmine_mcp_rs::error::Result;
 use redmine_mcp_rs::tools::App;
-use redmine_mcp_rs::{log, log_debug, mcp};
+use redmine_mcp_rs::{log, log_debug, server};
 
 const USAGE: &str = r#"A fast Model Context Protocol (MCP) server for Redmine (stdio transport).
 
@@ -86,7 +86,7 @@ async fn serve() -> Result<()> {
     );
 
     let app = App::new(config)?;
-    mcp::run(Arc::new(app)).await
+    server::run(Arc::new(app)).await
 }
 
 async fn check() -> Result<()> {

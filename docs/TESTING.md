@@ -22,11 +22,11 @@ cargo test --locked -- --nocapture        # show stdout from failing tests
 
 | Layer | Location | Tests | Network |
 | --- | --- | ---: | --- |
-| Unit | `src/**` `#[cfg(test)]` modules | 52 | none |
+| Unit | `src/**` `#[cfg(test)]` modules | 44 | none |
 | CLI | `src/main.rs` tests | 1 | none |
 | Integration | `tests/api_tools.rs` | 27 | localhost mock only |
-| End-to-end | `tests/stdio.rs` | 12 | localhost mock only |
-| **Total** | | **92** | |
+| End-to-end | `tests/stdio.rs` | 13 | localhost mock only |
+| **Total** | | **85** | |
 
 Counts are from the current suite; use `cargo test --locked` to see the exact
 numbers on your checkout.
@@ -40,6 +40,11 @@ numbers on your checkout.
 - URL normalization: trailing slash, base paths, percent-encoded paths,
   credentials/query/fragment rejection, `http`/`https` only.
 - API key redaction in `Debug` output.
+
+### Server adapter (`src/server.rs`)
+
+- Tool specs deserialize into rmcp `Tool` values; read-only mode filters them.
+- Server identity, capabilities and instructions are advertised.
 
 ### HTTP client (`src/redmine.rs`)
 
@@ -80,17 +85,19 @@ numbers on your checkout.
 - Tool schemas: every spec has a name, description, object input schema and
   annotations.
 
-### MCP transport (`src/mcp.rs` and `tests/stdio.rs`)
+### MCP transport (`src/server.rs` and `tests/stdio.rs`)
 
-- `initialize`, protocol version negotiation and fallback to the latest version.
-- `tools/list`, including read-only filtering.
+- The protocol/transport layer is the official `rmcp` 3.8 SDK; the tests drive
+  it through the real binary over stdio.
+- `initialize`/version negotiation, `tools/list` and read-only filtering.
 - `tools/call`: success content, tool errors as `isError`, unknown tools and
   methods, null arguments.
-- JSON-RPC ids: number, string, null and invalid types.
-- Parse errors, batch request rejection, notifications (no response).
+- Malformed input does not kill the server; batch requests are rejected.
 - stdout carries only protocol JSON; debug logs go to stderr.
 - CLI: `--help`, `--version`, `--check` success and failure.
 - `.env` precedence: process environment wins, and `.env` fills missing values.
+- A 13 MiB attachment (~17 MiB base64 line) is accepted, proving the transport's
+  line limit is above the SDK's 16 MiB default for the 25 MiB attachment cap.
 - Child process exits cleanly enough for the test harness to kill it.
 
 ## Mock Redmine
@@ -123,9 +130,9 @@ These gaps are deliberate; document or add tests if the relevant code changes.
   a real TLS handshake.
 - **Timeouts and network flakiness.** Retry behavior is tested with `503`; a
   real timeout path is not exercised.
-- **Maximum-size boundaries.** The 16 MiB response cap is exercised with a real
-  oversized body; the 64 MiB message and 25 MiB attachment boundaries are not
-  allocated in CI to keep the suite fast and memory-bounded.
+- **Maximum-size boundaries.** The 16 MiB response cap and a >16 MiB stdio line
+  are exercised with real payloads; the exact 25 MiB attachment and 64 MiB
+  message boundaries are not allocated in CI to keep the suite memory-bounded.
 - **`.env` parsing edge cases.** Precedence and missing-value filling are covered
   end-to-end; `dotenvy`'s own parser is trusted and is not fuzzed.
 - **Platform matrix.** CI runs on Linux; development and the measured benchmark

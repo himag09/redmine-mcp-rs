@@ -19,7 +19,8 @@ All notable changes to this project are documented in this file.
   retries only for transient failures.
 - Response, MCP message and attachment size caps.
 - CLI with `--help`, `--version` and the read-only `--check` health check.
-- Unit, mock-HTTP integration and stdio end-to-end tests (92 tests).
+- Official `rmcp` 3.8 SDK for the MCP protocol and stdio transport.
+- Unit, mock-HTTP integration and stdio end-to-end tests (85 tests).
 - CI for formatting, clippy, tests, documentation, release build and MSRV.
 - Dependabot updates and a RustSec advisory audit workflow.
 - Multi-platform release workflow with SHA-256 checksums.
