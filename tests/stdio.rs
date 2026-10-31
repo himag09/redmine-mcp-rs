@@ -2,6 +2,8 @@ mod common;
 
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
+
+use base64::Engine as _;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
@@ -132,9 +134,9 @@ fn initialize_and_list_tools() {
     let response = initialize(&mut process);
     assert_eq!(response["id"], json!(1));
     assert_eq!(response["result"]["protocolVersion"], json!("2025-06-18"));
-    assert_eq!(
-        response["result"]["capabilities"]["tools"]["listChanged"],
-        json!(false)
+    assert!(
+        response["result"]["capabilities"]["tools"].is_object(),
+        "tools capability should be advertised"
     );
     assert_eq!(
         response["result"]["serverInfo"]["name"],
@@ -190,7 +192,7 @@ fn tools_call_returns_json_text_content() {
 
     let response = process.recv();
     assert_eq!(response["id"], json!(2));
-    assert!(response["result"].get("isError").is_none());
+    assert_eq!(response["result"]["isError"], json!(false));
 
     let text = response["result"]["content"][0]["text"]
         .as_str()
@@ -232,18 +234,27 @@ fn read_only_mode_hides_and_rejects_write_tools() {
 }
 
 #[test]
-fn parse_errors_return_jsonrpc_errors_and_the_server_keeps_running() {
+fn malformed_input_does_not_kill_the_server() {
     let mock = MockRedmine::new(|_| MockResponse::empty(200));
     let mut process = McpProcess::spawn(&mock, &[]);
+    initialize(&mut process);
 
     process.send_raw("this is not json");
-    let error = process.recv();
-    assert_eq!(error["id"], Value::Null);
-    assert_eq!(error["error"]["code"], json!(-32700));
-
     process.send(json!({ "jsonrpc": "2.0", "id": 9, "method": "ping" }));
-    let pong = process.recv();
-    assert_eq!(pong["id"], json!(9));
+
+    let pong = loop {
+        let message = process.recv_within(Duration::from_secs(10));
+        if message["id"] == json!(9) {
+            break message;
+        }
+        // The official SDK may surface a parse error before the next reply.
+        assert_eq!(
+            message["error"]["code"],
+            json!(-32700),
+            "unexpected response: {message}"
+        );
+    };
+
     assert_eq!(pong["result"], json!({}));
 }
 
@@ -251,6 +262,7 @@ fn parse_errors_return_jsonrpc_errors_and_the_server_keeps_running() {
 fn batch_requests_are_rejected_without_stopping_the_server() {
     let mock = MockRedmine::new(|_| MockResponse::empty(200));
     let mut process = McpProcess::spawn(&mock, &[]);
+    initialize(&mut process);
 
     process.send(json!([{ "jsonrpc": "2.0", "id": 1, "method": "ping" }]));
     let error = process.recv();
@@ -264,6 +276,7 @@ fn batch_requests_are_rejected_without_stopping_the_server() {
 fn unknown_methods_and_tools_are_protocol_errors() {
     let mock = MockRedmine::new(|_| MockResponse::empty(200));
     let mut process = McpProcess::spawn(&mock, &[]);
+    initialize(&mut process);
 
     process.send(json!({ "jsonrpc": "2.0", "id": 1, "method": "does/not/exist" }));
     let error = process.recv();
@@ -276,7 +289,7 @@ fn unknown_methods_and_tools_are_protocol_errors() {
         "params": { "name": "does_not_exist", "arguments": {} }
     }));
     let error = process.recv();
-    assert_eq!(error["error"]["code"], json!(-32602));
+    assert_eq!(error["error"]["code"], json!(-32601));
 }
 
 #[test]
@@ -437,4 +450,52 @@ fn process_environment_wins_over_dotenv() {
         Some("key-from-dotenv"),
         "the API key should come from .env when the process env omits it"
     );
+}
+
+#[test]
+fn accepts_attachment_messages_above_the_sdk_default_line_limit() {
+    // rmcp's stdio transport defaults to 16 MiB per line. A 13 MiB attachment
+    // becomes ~17.3 MiB of base64 plus JSON framing, so this test would time
+    // out if the server did not raise the line limit for the 25 MiB cap.
+    let mock = MockRedmine::new(
+        |request| match (request.method.as_str(), request.path.as_str()) {
+            ("POST", "/uploads.json") => {
+                MockResponse::json(201, r#"{"upload":{"id":1,"token":"tok"}}"#)
+            }
+            ("PUT", "/issues/1.json") => MockResponse::empty(204),
+            ("GET", "/issues/1.json") => MockResponse::json(200, r#"{"issue":{"id":1}}"#),
+            _ => MockResponse::json(404, "{}"),
+        },
+    );
+    let mut process = McpProcess::spawn(&mock, &[]);
+    initialize(&mut process);
+
+    let data = vec![b'a'; 13 * 1024 * 1024];
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&data);
+    process.send(json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+            "name": "add_attachment",
+            "arguments": {
+                "issue_id": 1,
+                "filename": "big.bin",
+                "data_base64": encoded
+            }
+        }
+    }));
+
+    let response = process.recv_within(Duration::from_secs(30));
+    assert_eq!(response["id"], json!(2));
+    assert_eq!(response["result"]["isError"], json!(false));
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .expect("text content");
+    let issue: Value = serde_json::from_str(text).expect("tool text is JSON");
+    assert_eq!(issue["id"], json!(1));
+
+    let requests = mock.requests();
+    assert_eq!(requests[0].path, "/uploads.json");
+    assert_eq!(requests[0].body.len(), data.len());
 }

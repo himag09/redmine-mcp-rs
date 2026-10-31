@@ -9,8 +9,8 @@ process (Claude Desktop, Cursor, DeepSeek Harness, ...) can work with Redmine.
 
 ## Highlights
 
-- **Fast.** ~7 ms to complete the MCP handshake and ~4 MB RSS at startup in a
-  local benchmark, with a self-contained ~4 MB binary.
+- **Fast.** ~8 ms to complete the MCP handshake and ~5 MB RSS at startup in a
+  local benchmark, with a self-contained ~5.6 MB binary.
 - **Safe by design.** The API key is never logged or forwarded to another
   origin, `api_key` fields are redacted from every response, an optional
   read-only mode disables all writes, write requests are never retried, and
@@ -18,13 +18,17 @@ process (Claude Desktop, Cursor, DeepSeek Harness, ...) can work with Redmine.
 - **Correct.** Arguments are validated before any request, list tools expose
   pagination, text search uses Redmine's native `~` operator, `read_issue`
   supports journals and allowed statuses, and dates/ranges are checked.
-- **Small dependency surface.** tokio, reqwest (rustls), serde, base64,
+- **Official MCP SDK.** The protocol and stdio transport use
+  [`rmcp`](https://crates.io/crates/rmcp) 3.8; the Redmine client, validation and
+  tool handlers stay in this crate and are independently tested.
+- **Small dependency surface.** tokio, rmcp, reqwest (rustls), serde, base64,
   dotenvy and url.
 - **Tested.** Unit, mock-HTTP integration and real stdio end-to-end tests. The
   suite does not need a Redmine instance, an API key or external network access.
 
 Startup benchmark: process start through `initialize` and `tools/list`, median
-of 10 runs on Apple Silicon macOS with Rust 1.99.1, with no network requests.
+of 10 runs on Apple Silicon macOS with Rust 1.99.1 and rmcp 3.8, with no network
+requests.
 
 ## Requirements
 
@@ -206,9 +210,10 @@ can apply their own approval policies.
 - **Untrusted content.** Issue descriptions, comments and user data are data,
   not instructions. The server tells the model this, but prompt injection is
   still possible; keep your agent's confirmation and sandboxing policies.
-- **Bounded I/O.** Responses are capped at 16 MiB, MCP messages at 64 MiB and
-  attachments at 25 MiB. HTML error pages are summarized instead of being dumped
-  into the model context.
+- **Bounded I/O.** Responses are capped at 16 MiB and attachments at 25 MiB.
+  The rmcp stdio transport is configured to 64 MiB per message (above its 16 MiB
+  default) so a 25 MiB attachment fits; HTML error pages are summarized instead
+  of being dumped into the model context.
 - **Search result links.** URLs returned by `search` are kept only when they
   point at the configured Redmine origin; anything else becomes `null`.
 - **Retries.** Only GET requests are retried (up to three attempts) for
@@ -229,7 +234,7 @@ cargo test --locked
 The suite has three layers:
 
 - unit tests inside `src/` for configuration, validation, error mapping and the
-  JSON-RPC state machine;
+  rmcp server adapter;
 - `tests/api_tools.rs`, which runs all tools against a local mock Redmine and
   asserts the exact HTTP paths, query parameters, headers and payloads;
 - `tests/stdio.rs`, which spawns the real binary and speaks newline-delimited
@@ -261,7 +266,7 @@ src/
   config.rs    environment/.env validation
   error.rs     error types and user-facing messages
   log.rs       minimal stderr logger
-  mcp.rs       stdio JSON-RPC transport, version negotiation, dispatch
+  server.rs    rmcp ServerHandler adapter for the tool registry
   redmine.rs   HTTP client, retries, redaction, error mapping
   tools.rs     tool registry, schemas, handlers and validation
 tests/

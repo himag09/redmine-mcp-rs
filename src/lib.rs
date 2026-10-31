@@ -6,6 +6,6 @@
 pub mod config;
 pub mod error;
 pub mod log;
-pub mod mcp;
 pub mod redmine;
+pub mod server;
 pub mod tools;

@@ -47,7 +47,7 @@ history and screen shares, and rotate the key if it may have been exposed.
 | API key leaked through a redirect | Same-origin-only redirect policy | A compromised Redmine host itself still sees the key |
 | API key leaked through logs or errors | No header/body logging, HTML error summarization | OS-level tracing (e.g., a debugger) can still see memory |
 | Malicious or oversized response | 16 MiB response cap, HTML summaries, JSON validation | A 16 MiB payload can still consume context; the model decides what to use |
-| Oversized MCP message or attachment | 64 MiB message cap, 25 MiB attachment cap, strict base64 | Large but valid inputs still use memory |
+| Oversized MCP message or attachment | 64 MiB rmcp stdio line cap, 25 MiB attachment cap, strict base64 | Large but valid inputs still use memory |
 | Prompt injection from issue content | MCP `instructions` mark content as untrusted data; agent confirmation policy | The model can still follow malicious text; no server can fully prevent this |
 | Supply-chain compromise | Small dependency set, committed `Cargo.lock`, Dependabot, RustSec audit in CI | A compromised crate or build script runs with your build/runtime privileges |
 | Local attacker with code execution as your user | Least privilege, dedicated user/VM/container, file permissions, key rotation | Total: the attacker can read the config and the key directly |
