@@ -182,6 +182,21 @@ impl RedmineClient {
         self.parse_response(response).await
     }
 
+    /// PUT/DELETE with no JSON body. Never retried, like all writes.
+    async fn send_no_body(&self, method: Method, path: &str) -> Result<Value> {
+        let url = self.url(path)?;
+        let started = Instant::now();
+        let response = self.write_http.request(method.clone(), url).send().await?;
+        log_debug!(
+            "{} {} -> {} ({} ms)",
+            method,
+            path,
+            response.status().as_u16(),
+            started.elapsed().as_millis()
+        );
+        self.parse_response(response).await
+    }
+
     async fn parse_response(&self, response: Response) -> Result<Value> {
         let status = response.status();
         let content_type = response
@@ -254,6 +269,23 @@ impl RedmineClient {
             Method::POST,
             "time_entries.json",
             &json!({ "time_entry": time_entry }),
+        )
+        .await
+    }
+
+    pub async fn update_time_entry(&self, time_entry_id: u64, time_entry: &Value) -> Result<Value> {
+        self.send_json(
+            Method::PUT,
+            &format!("time_entries/{time_entry_id}.json"),
+            &json!({ "time_entry": time_entry }),
+        )
+        .await
+    }
+
+    pub async fn delete_time_entry(&self, time_entry_id: u64) -> Result<Value> {
+        self.send_no_body(
+            Method::DELETE,
+            &format!("time_entries/{time_entry_id}.json"),
         )
         .await
     }

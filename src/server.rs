@@ -156,7 +156,7 @@ mod tests {
     #[test]
     fn tools_convert_to_sdk_specs_and_respect_read_only() {
         let all = RedmineServer::new(test_app(false)).expect("server");
-        assert_eq!(all.tools.len(), 15);
+        assert_eq!(all.tools.len(), 17);
         assert!(all.tools.iter().any(|tool| tool.name.as_ref() == "search"));
 
         let read_only = RedmineServer::new(test_app(true)).expect("server");

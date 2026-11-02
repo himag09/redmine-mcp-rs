@@ -86,7 +86,7 @@ Practical consequences:
 
 ## Read-only mode
 
-`REDMINE_READ_ONLY=true` hides the six write tools and rejects direct calls to
+`REDMINE_READ_ONLY=true` hides the eight write tools and rejects direct calls to
 them. It is a guardrail for the MCP client, not an authorization boundary for
 the API key: anyone who obtains the key can still call Redmine directly, and the
 key's Redmine permissions still apply.

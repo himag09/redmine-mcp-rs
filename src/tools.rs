@@ -54,6 +54,8 @@ pub fn is_write(name: &str) -> bool {
             | "transition_issue"
             | "add_attachment"
             | "log_time"
+            | "update_time_entry"
+            | "delete_time_entry"
     )
 }
 
@@ -75,6 +77,8 @@ pub fn is_known(name: &str) -> bool {
             | "get_metadata"
             | "log_time"
             | "list_time_entries"
+            | "update_time_entry"
+            | "delete_time_entry"
     )
 }
 
@@ -93,6 +97,8 @@ pub fn specs(read_only: bool) -> Vec<Value> {
         search_spec(),
         add_attachment_spec(),
         log_time_spec(),
+        update_time_entry_spec(),
+        delete_time_entry_spec(),
         get_project_versions_spec(),
         get_project_categories_spec(),
         get_metadata_spec(),
@@ -129,6 +135,8 @@ pub async fn call(app: &App, name: &str, args: Value) -> Result<Value> {
         "search" => search(app, args).await,
         "add_attachment" => add_attachment(app, args).await,
         "log_time" => log_time(app, args).await,
+        "update_time_entry" => update_time_entry(app, args).await,
+        "delete_time_entry" => delete_time_entry(app, args).await,
         "get_project_versions" => get_project_versions(app, args).await,
         "get_project_categories" => get_project_categories(app, args).await,
         "get_metadata" => get_metadata(app, args).await,
@@ -196,6 +204,23 @@ async fn log_time(app: &App, args: Value) -> Result<Value> {
     let time_entry = build_time_entry(&args)?;
     let response = app.client.create_time_entry(&time_entry).await?;
     Ok(unwrap_time_entry(response))
+}
+
+async fn update_time_entry(app: &App, args: Value) -> Result<Value> {
+    let args: UpdateTimeEntryArgs = parse_args("update_time_entry", args)?;
+    ensure_positive("time_entry_id", args.time_entry_id)?;
+    let time_entry = build_time_entry_update(&args)?;
+    app.client
+        .update_time_entry(args.time_entry_id, &time_entry)
+        .await?;
+    Ok(json!({ "id": args.time_entry_id, "succeeded": true }))
+}
+
+async fn delete_time_entry(app: &App, args: Value) -> Result<Value> {
+    let args: DeleteTimeEntryArgs = parse_args("delete_time_entry", args)?;
+    ensure_positive("time_entry_id", args.time_entry_id)?;
+    app.client.delete_time_entry(args.time_entry_id).await?;
+    Ok(json!({ "id": args.time_entry_id, "deleted": true }))
 }
 
 async fn add_issue_note(app: &App, args: Value) -> Result<Value> {
@@ -471,6 +496,22 @@ struct LogTimeArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct UpdateTimeEntryArgs {
+    time_entry_id: u64,
+    hours: Option<f64>,
+    activity_id: Option<u64>,
+    spent_on: Option<String>,
+    comments: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeleteTimeEntryArgs {
+    time_entry_id: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct FindIssuesArgs {
     project_id: Option<u64>,
     tracker_id: Option<u64>,
@@ -686,6 +727,33 @@ fn build_time_entry(args: &LogTimeArgs) -> Result<Value> {
         if !comments.is_empty() {
             entry.insert("comments".to_string(), json!(comments));
         }
+    }
+
+    Ok(Value::Object(entry))
+}
+
+fn build_time_entry_update(args: &UpdateTimeEntryArgs) -> Result<Value> {
+    let mut entry = Map::new();
+
+    if let Some(hours) = args.hours {
+        entry.insert("hours".to_string(), time_entry_hours(hours)?);
+    }
+    if let Some(activity_id) = args.activity_id {
+        ensure_positive("activity_id", activity_id)?;
+        entry.insert("activity_id".to_string(), json!(activity_id));
+    }
+    if let Some(date) = &args.spent_on {
+        validate_date("spent_on", date)?;
+        entry.insert("spent_on".to_string(), json!(date));
+    }
+    if let Some(comments) = &args.comments {
+        entry.insert("comments".to_string(), json!(comments.trim()));
+    }
+
+    if entry.is_empty() {
+        return Err(Error::validation(
+            "nothing to update: provide at least one of hours, activity_id, spent_on or comments",
+        ));
     }
 
     Ok(Value::Object(entry))
@@ -1628,6 +1696,49 @@ fn log_time_spec() -> Value {
     })
 }
 
+fn update_time_entry_spec() -> Value {
+    json!({
+        "name": "update_time_entry",
+        "title": "Update time entry",
+        "description": "Update an existing time entry. Only the fields you send are changed; an empty comments string clears it. WARNING: writes to the configured Redmine instance; call it only after the user explicitly confirms the exact change.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "time_entry_id": id_prop("Time entry id."),
+                "hours": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 24,
+                    "description": "New hours value (greater than 0, at most 24)."
+                },
+                "activity_id": id_prop("New time entry activity id (see get_metadata)."),
+                "spent_on": date_prop("New date in YYYY-MM-DD format."),
+                "comments": { "type": "string", "description": "New comment; an empty string clears it." }
+            },
+            "required": ["time_entry_id"],
+            "additionalProperties": false
+        },
+        "annotations": write_annotations(true, true)
+    })
+}
+
+fn delete_time_entry_spec() -> Value {
+    json!({
+        "name": "delete_time_entry",
+        "title": "Delete time entry",
+        "description": "Delete a time entry permanently. WARNING: destructive write to the configured Redmine instance; call it only after the user explicitly confirms the exact time entry.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "time_entry_id": id_prop("Time entry id.")
+            },
+            "required": ["time_entry_id"],
+            "additionalProperties": false
+        },
+        "annotations": write_annotations(true, true)
+    })
+}
+
 fn get_project_versions_spec() -> Value {
     json!({
         "name": "get_project_versions",
@@ -1690,6 +1801,10 @@ mod tests {
 
     fn parse_log_time(value: Value) -> LogTimeArgs {
         serde_json::from_value(value).expect("valid log time args")
+    }
+
+    fn parse_update_time(value: Value) -> UpdateTimeEntryArgs {
+        serde_json::from_value(value).expect("valid update time args")
     }
 
     #[test]
@@ -1930,7 +2045,7 @@ mod tests {
     fn read_only_mode_hides_write_tools() {
         let all = specs(false);
         let reads = specs(true);
-        assert_eq!(all.len(), 15);
+        assert_eq!(all.len(), 17);
         assert_eq!(reads.len(), 9);
         assert!(
             reads
@@ -1993,6 +2108,42 @@ mod tests {
             "spent_on": "2025-02-29"
         }));
         assert!(build_time_entry(&args).is_err());
+    }
+
+    #[test]
+    fn builds_time_entry_update_and_allows_clearing_comments() {
+        let args = parse_update_time(json!({
+            "time_entry_id": 99,
+            "hours": 3.5,
+            "activity_id": 10,
+            "spent_on": "2026-11-02",
+            "comments": "  Revisión  "
+        }));
+        let entry = build_time_entry_update(&args).expect("valid update");
+        assert_eq!(entry["hours"], json!(3.5));
+        assert_eq!(entry["activity_id"], json!(10));
+        assert_eq!(entry["spent_on"], json!("2026-11-02"));
+        assert_eq!(entry["comments"], json!("Revisión"));
+
+        let args = parse_update_time(json!({ "time_entry_id": 99, "comments": "" }));
+        let entry = build_time_entry_update(&args).expect("clear comments");
+        assert_eq!(entry["comments"], json!(""));
+    }
+
+    #[test]
+    fn rejects_empty_or_invalid_time_entry_updates() {
+        let args = parse_update_time(json!({ "time_entry_id": 99 }));
+        assert!(build_time_entry_update(&args).is_err());
+
+        for update in [
+            json!({ "time_entry_id": 99, "hours": 0 }),
+            json!({ "time_entry_id": 99, "hours": 25 }),
+            json!({ "time_entry_id": 99, "activity_id": 0 }),
+            json!({ "time_entry_id": 99, "spent_on": "2025-02-29" }),
+        ] {
+            let args = parse_update_time(update);
+            assert!(build_time_entry_update(&args).is_err());
+        }
     }
 
     #[test]

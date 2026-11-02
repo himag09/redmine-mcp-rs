@@ -22,11 +22,11 @@ cargo test --locked -- --nocapture        # show stdout from failing tests
 
 | Layer | Location | Tests | Network |
 | --- | --- | ---: | --- |
-| Unit | `src/**` `#[cfg(test)]` modules | 46 | none |
+| Unit | `src/**` `#[cfg(test)]` modules | 48 | none |
 | CLI | `src/main.rs` tests | 1 | none |
-| Integration | `tests/api_tools.rs` | 30 | localhost mock only |
+| Integration | `tests/api_tools.rs` | 33 | localhost mock only |
 | End-to-end | `tests/stdio.rs` | 14 | localhost mock only |
-| **Total** | | **91** | |
+| **Total** | | **96** | |
 
 Counts are from the current suite; use `cargo test --locked` to see the exact
 numbers on your checkout.
@@ -76,6 +76,8 @@ numbers on your checkout.
 - `log_time`: payload construction, activity/date/hours validation, POST path,
   read-only rejection.
 - `list_time_entries`: issue filter, pagination query, hours/comments response.
+- `update_time_entry`: partial payloads, comments clearing, validation, PUT path.
+- `delete_time_entry`: DELETE path and empty request body.
 - `create_issue`: default project, omitted fields, custom fields, watcher
   deduplication, date/range validation.
 - `update_issue`: partial payloads, empty description/date handling, notes,
@@ -83,8 +85,8 @@ numbers on your checkout.
 - `add_issue_note` / `transition_issue`: payloads and pre-HTTP validation.
 - `add_attachment`: plain base64 and data URI, filename/content-type validation,
   upload token flow, invalid base64 rejection.
-- Time entries: `POST /time_entries.json` and `GET /time_entries.json` payloads,
-  pagination, comments and real activities in `get_metadata`.
+- Time entries: `POST`, `PUT` and `DELETE /time_entries/{id}.json`, `GET
+  /time_entries.json` payloads, pagination, comments and activities.
 - Page size bounds (1–100, default 25) and exact-subject filtering.
 - Read-only mode: tools hidden from `tools/list` and rejected at call time.
 - Tool schemas: every spec has a name, description, object input schema and

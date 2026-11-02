@@ -38,7 +38,36 @@ requests.
 
 TLS uses rustls with bundled roots; OpenSSL is not required.
 
-## Build and install
+## Install from a release
+
+Prebuilt binaries for Linux (musl, x86_64 and aarch64), macOS (arm64 and x86_64)
+and Windows (x86_64) are attached to each
+[GitHub release](https://github.com/himag09/redmine-mcp-rs/releases/latest).
+Rust, Cargo and a compiler are not required for these binaries.
+
+1. Download the archive and its `.sha256` file for your platform.
+2. Verify the checksum:
+   - macOS: `shasum -a 256 -c <archive>.sha256`
+   - Linux: `sha256sum -c <archive>.sha256`
+   - Windows: `Get-FileHash <archive> -Algorithm SHA256`
+3. Extract the archive (`.tar.gz` on macOS/Linux, `.zip` on Windows).
+4. Point your MCP client's `command` at the absolute path of the extracted
+   `redmine-mcp-rs` binary.
+
+For example, on Apple Silicon macOS:
+
+```bash
+shasum -a 256 -c redmine-mcp-rs-v1.2.0-aarch64-apple-darwin.sha256
+tar -xzf redmine-mcp-rs-v1.2.0-aarch64-apple-darwin.tar.gz
+./redmine-mcp-rs-v1.2.0-aarch64-apple-darwin/redmine-mcp-rs --version
+```
+
+macOS artifacts are not code-signed; Gatekeeper may require right-click → Open or
+an explicit `xattr` change.
+
+## Build from source
+
+Use this when developing or when no prebuilt binary matches your platform.
 
 ```bash
 cargo build --release
@@ -48,13 +77,8 @@ cargo build --release
 cargo install --path .
 ```
 
-The release binary is at `target/release/redmine-mcp-rs`. It is self-contained;
-copy it anywhere and point your MCP client at its absolute path.
-
-Tagged releases (`v*`) are built by GitHub Actions for Linux (x86_64 and
-aarch64, musl), macOS (arm64 and x86_64) and Windows (x86_64), with SHA-256
-checksums. macOS artifacts are not code-signed; Gatekeeper may require
-right-click → Open or an explicit `xattr` change.
+The binary is at `target/release/redmine-mcp-rs`. It is self-contained; copy it
+anywhere and point your MCP client at its absolute path.
 
 ## Configuration
 
@@ -134,7 +158,7 @@ minimal `PATH`, so a bare `redmine-mcp-rs` may not resolve.
 ```
 
 Set `REDMINE_READ_ONLY=true` when the client only needs to read. It removes the
-six write tools from `tools/list` and rejects direct calls to them.
+eight write tools from `tools/list` and rejects direct calls to them.
 
 ## Tools
 
@@ -155,6 +179,8 @@ six write tools from `tools/list` and rejects direct calls to them.
 | `transition_issue` | **write** | Change the status (workflow rules apply). |
 | `add_attachment` | **write** | Upload one file (base64) and attach it. |
 | `log_time` | **write** | Log spent hours on an issue. |
+| `update_time_entry` | **write** | Update an existing time entry. |
+| `delete_time_entry` | **write** | Delete a time entry permanently. |
 
 Every tool returns compact JSON in a single `text` content block. Failures use
 `isError: true` with an actionable message. Tools carry MCP annotations
@@ -189,8 +215,8 @@ can apply their own approval policies.
 - **Time entries** are separate from `estimated_hours`. `log_time` requires
   `activity_id`, logs more than 0 and at most 24 hours, and accepts optional
   `spent_on` and `comments`. `list_time_entries` returns the logged hours, date,
-  activity, user and comments for an issue; editing or deleting time entries is
-  not exposed.
+  activity, user and comments for an issue. `update_time_entry` changes only the
+  fields you send and `delete_time_entry` removes an entry permanently.
 - **`add_attachment`** accepts standard base64 or a `data:` URI, up to 25 MiB
   decoded. File names cannot contain path separators or control characters.
 - **Writes** are followed by a re-read so the model sees the updated issue. If
@@ -208,7 +234,7 @@ can apply their own approval policies.
   `http` → `https` upgrade on the same host); cross-origin and HTTPS→HTTP
   redirects are refused. Writes never follow redirects, so a write cannot be
   replayed at a different endpoint.
-- **Read-only mode.** `REDMINE_READ_ONLY=true` removes and rejects the six write
+- **Read-only mode.** `REDMINE_READ_ONLY=true` removes and rejects the eight write
   tools. Recommended for production instances that agents should not modify.
 - **Confirmation is the client's job.** Mutating tools carry MCP annotations
   (`destructiveHint` for updates/transitions) and the MCP `instructions` warn
@@ -300,7 +326,7 @@ cargo run --release -- --check
 
 - stdio transport only (no Streamable HTTP/SSE).
 - No attachment download; `add_attachment` is upload-only.
-- No issue deletion, time-entry editing/deletion, watcher removal or project
+- No issue deletion, time-entry bulk operations, watcher removal or project
   administration.
 - Setting nullable ids (assignee, version, category) is supported; clearing them
   is not exposed. Dates can be cleared with an empty string.

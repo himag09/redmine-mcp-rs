@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## 1.2.0 - 2026-11-02
+
+### Added
+
+- `update_time_entry` write tool for `PUT /time_entries/{id}.json`.
+- `delete_time_entry` write tool for `DELETE /time_entries/{id}.json`.
+- README instructions for installing prebuilt binaries from a GitHub release,
+  without Rust or Cargo.
+- Tests now cover 96 cases across unit, mock-HTTP and stdio layers.
+
 ## 1.1.0 - 2026-11-02
 
 ### Added

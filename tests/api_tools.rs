@@ -888,6 +888,90 @@ async fn list_time_entries_reads_hours_and_comments() {
 }
 
 #[tokio::test]
+async fn update_time_entry_puts_only_provided_fields() {
+    let mock = MockRedmine::new(
+        |request| match (request.method.as_str(), request.path.as_str()) {
+            ("PUT", "/time_entries/99.json") => MockResponse::empty(204),
+            _ => MockResponse::json(404, "{}"),
+        },
+    );
+    let app = test_app(&mock, false);
+
+    let result = call(
+        &app,
+        "update_time_entry",
+        json!({
+            "time_entry_id": 99,
+            "hours": 3.5,
+            "activity_id": 10,
+            "spent_on": "2026-11-02",
+            "comments": "Revisión"
+        }),
+    )
+    .await;
+
+    assert_eq!(result["id"], json!(99));
+    assert_eq!(result["succeeded"], json!(true));
+
+    let request = mock.last_request();
+    assert_eq!(request.method, "PUT");
+    assert_eq!(request.path, "/time_entries/99.json");
+    let body = request.json_body();
+    assert_eq!(body["time_entry"]["hours"], json!(3.5));
+    assert_eq!(body["time_entry"]["activity_id"], json!(10));
+    assert_eq!(body["time_entry"]["spent_on"], json!("2026-11-02"));
+    assert_eq!(body["time_entry"]["comments"], json!("Revisión"));
+}
+
+#[tokio::test]
+async fn delete_time_entry_uses_delete_without_body() {
+    let mock = MockRedmine::new(
+        |request| match (request.method.as_str(), request.path.as_str()) {
+            ("DELETE", "/time_entries/99.json") => MockResponse::empty(204),
+            _ => MockResponse::json(404, "{}"),
+        },
+    );
+    let app = test_app(&mock, false);
+
+    let result = call(&app, "delete_time_entry", json!({ "time_entry_id": 99 })).await;
+
+    assert_eq!(result["id"], json!(99));
+    assert_eq!(result["deleted"], json!(true));
+
+    let request = mock.last_request();
+    assert_eq!(request.method, "DELETE");
+    assert_eq!(request.path, "/time_entries/99.json");
+    assert!(request.body.is_empty());
+}
+
+#[tokio::test]
+async fn time_entry_updates_validate_before_http() {
+    let mock = MockRedmine::new(|_| MockResponse::empty(204));
+    let app = test_app(&mock, false);
+
+    for (name, args) in [
+        ("update_time_entry", json!({ "time_entry_id": 99 })),
+        (
+            "update_time_entry",
+            json!({ "time_entry_id": 99, "hours": 0 }),
+        ),
+        (
+            "update_time_entry",
+            json!({ "time_entry_id": 99, "activity_id": 0 }),
+        ),
+        (
+            "update_time_entry",
+            json!({ "time_entry_id": 99, "spent_on": "2025-02-29" }),
+        ),
+        ("delete_time_entry", json!({ "time_entry_id": 0 })),
+    ] {
+        assert!(tools::call(&app, name, args).await.is_err());
+    }
+
+    assert_eq!(mock.request_count(), 0);
+}
+
+#[tokio::test]
 async fn search_rejects_invalid_arguments_before_http() {
     let mock = MockRedmine::new(|_| MockResponse::json(200, r#"{"results":[]}"#));
     let app = test_app(&mock, false);

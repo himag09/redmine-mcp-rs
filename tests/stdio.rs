@@ -160,7 +160,7 @@ fn initialize_and_list_tools() {
     let list = process.recv();
     assert_eq!(list["id"], json!(2));
     let tools = list["result"]["tools"].as_array().expect("tools array");
-    assert_eq!(tools.len(), 15);
+    assert_eq!(tools.len(), 17);
 
     let read_issue = tools
         .iter()
@@ -512,6 +512,8 @@ fn time_entry_tools_work_over_stdio() {
                 200,
                 r#"{"time_entries":[{"id":1,"hours":2.0,"comments":"ok"}],"total_count":1,"offset":0,"limit":25}"#,
             ),
+            ("PUT", "/time_entries/1.json") => MockResponse::empty(204),
+            ("DELETE", "/time_entries/1.json") => MockResponse::empty(204),
             _ => MockResponse::json(404, "{}"),
         },
     );
@@ -558,4 +560,38 @@ fn time_entry_tools_work_over_stdio() {
         .expect("text content");
     let list: Value = serde_json::from_str(text).expect("time entries JSON");
     assert_eq!(list["time_entries"][0]["comments"], json!("ok"));
+
+    process.send(json!({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "tools/call",
+        "params": {
+            "name": "update_time_entry",
+            "arguments": { "time_entry_id": 1, "hours": 3.0, "comments": "updated" }
+        }
+    }));
+    let response = process.recv();
+    assert_eq!(response["result"]["isError"], json!(false));
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .expect("text content");
+    let updated: Value = serde_json::from_str(text).expect("update JSON");
+    assert_eq!(updated["succeeded"], json!(true));
+
+    process.send(json!({
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "tools/call",
+        "params": {
+            "name": "delete_time_entry",
+            "arguments": { "time_entry_id": 1 }
+        }
+    }));
+    let response = process.recv();
+    assert_eq!(response["result"]["isError"], json!(false));
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .expect("text content");
+    let deleted: Value = serde_json::from_str(text).expect("delete JSON");
+    assert_eq!(deleted["deleted"], json!(true));
 }
