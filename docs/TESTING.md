@@ -22,11 +22,11 @@ cargo test --locked -- --nocapture        # show stdout from failing tests
 
 | Layer | Location | Tests | Network |
 | --- | --- | ---: | --- |
-| Unit | `src/**` `#[cfg(test)]` modules | 44 | none |
+| Unit | `src/**` `#[cfg(test)]` modules | 46 | none |
 | CLI | `src/main.rs` tests | 1 | none |
-| Integration | `tests/api_tools.rs` | 27 | localhost mock only |
-| End-to-end | `tests/stdio.rs` | 13 | localhost mock only |
-| **Total** | | **85** | |
+| Integration | `tests/api_tools.rs` | 30 | localhost mock only |
+| End-to-end | `tests/stdio.rs` | 14 | localhost mock only |
+| **Total** | | **91** | |
 
 Counts are from the current suite; use `cargo test --locked` to see the exact
 numbers on your checkout.
@@ -71,8 +71,11 @@ numbers on your checkout.
   pre-HTTP validation.
 - `list_projects`: pagination and response envelope.
 - `list_trackers_statuses`, `get_project_versions`, `get_project_categories`.
-- `get_metadata`: concurrent fetches, users/priorities degradation with warnings,
-  truncation warnings.
+- `get_metadata`: concurrent fetches, users/priorities/activities degradation with
+  warnings, truncation warnings.
+- `log_time`: payload construction, activity/date/hours validation, POST path,
+  read-only rejection.
+- `list_time_entries`: issue filter, pagination query, hours/comments response.
 - `create_issue`: default project, omitted fields, custom fields, watcher
   deduplication, date/range validation.
 - `update_issue`: partial payloads, empty description/date handling, notes,
@@ -80,6 +83,8 @@ numbers on your checkout.
 - `add_issue_note` / `transition_issue`: payloads and pre-HTTP validation.
 - `add_attachment`: plain base64 and data URI, filename/content-type validation,
   upload token flow, invalid base64 rejection.
+- Time entries: `POST /time_entries.json` and `GET /time_entries.json` payloads,
+  pagination, comments and real activities in `get_metadata`.
 - Page size bounds (1–100, default 25) and exact-subject filtering.
 - Read-only mode: tools hidden from `tools/list` and rejected at call time.
 - Tool schemas: every spec has a name, description, object input schema and

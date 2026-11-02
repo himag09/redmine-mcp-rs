@@ -109,7 +109,6 @@ minimal `PATH`, so a bare `redmine-mcp-rs` may not resolve.
       "env": {
         "REDMINE_URL": "https://redmine.example.com/",
         "REDMINE_API_KEY": "YOUR_REDMINE_API_KEY",
-        "REDMINE_DEFAULT_PROJECT_ID": "1",
         "REDMINE_READ_ONLY": "true"
       }
     }
@@ -135,25 +134,27 @@ minimal `PATH`, so a bare `redmine-mcp-rs` may not resolve.
 ```
 
 Set `REDMINE_READ_ONLY=true` when the client only needs to read. It removes the
-five write tools from `tools/list` and rejects direct calls to them.
+six write tools from `tools/list` and rejects direct calls to them.
 
 ## Tools
 
 | Tool | Type | Purpose |
 | --- | --- | --- |
 | `read_issue` | read | Read one issue, optionally with journals, relations, attachments, children, changesets or allowed statuses. |
+| `list_time_entries` | read | List time entries for an issue: hours, date, activity, user and comments. |
 | `find_issues` | read | Search issues with Redmine filters and pagination. |
 | `search` | read | Global full-text search across issues, wiki pages, news, documents, changesets, messages and projects. |
 | `list_projects` | read | List projects with pagination. |
 | `list_trackers_statuses` | read | List trackers and issue statuses. |
 | `get_project_versions` | read | List a project's versions (milestones). |
 | `get_project_categories` | read | List a project's issue categories. |
-| `get_metadata` | read | Projects, trackers, statuses, users and priorities in one call. |
+| `get_metadata` | read | Projects, trackers, statuses, users, priorities and time entry activities in one call. |
 | `create_issue` | **write** | Create an issue. |
 | `update_issue` | **write** | Update fields and/or add a comment. |
 | `add_issue_note` | **write** | Add a comment. |
 | `transition_issue` | **write** | Change the status (workflow rules apply). |
 | `add_attachment` | **write** | Upload one file (base64) and attach it. |
+| `log_time` | **write** | Log spent hours on an issue. |
 
 Every tool returns compact JSON in a single `text` content block. Failures use
 `isError: true` with an actionable message. Tools carry MCP annotations
@@ -184,6 +185,12 @@ can apply their own approval policies.
   admin rights in Redmine; when unavailable it is `[]` and `warnings` explains
   why. Projects and users are limited to the first 100; the warning explains
   the truncation (and points to `list_projects` for project pagination).
+  `time_entry_activities` is the list of activity ids accepted by `log_time`.
+- **Time entries** are separate from `estimated_hours`. `log_time` requires
+  `activity_id`, logs more than 0 and at most 24 hours, and accepts optional
+  `spent_on` and `comments`. `list_time_entries` returns the logged hours, date,
+  activity, user and comments for an issue; editing or deleting time entries is
+  not exposed.
 - **`add_attachment`** accepts standard base64 or a `data:` URI, up to 25 MiB
   decoded. File names cannot contain path separators or control characters.
 - **Writes** are followed by a re-read so the model sees the updated issue. If
@@ -201,7 +208,7 @@ can apply their own approval policies.
   `http` → `https` upgrade on the same host); cross-origin and HTTPS→HTTP
   redirects are refused. Writes never follow redirects, so a write cannot be
   replayed at a different endpoint.
-- **Read-only mode.** `REDMINE_READ_ONLY=true` removes and rejects the five write
+- **Read-only mode.** `REDMINE_READ_ONLY=true` removes and rejects the six write
   tools. Recommended for production instances that agents should not modify.
 - **Confirmation is the client's job.** Mutating tools carry MCP annotations
   (`destructiveHint` for updates/transitions) and the MCP `instructions` warn
@@ -293,7 +300,8 @@ cargo run --release -- --check
 
 - stdio transport only (no Streamable HTTP/SSE).
 - No attachment download; `add_attachment` is upload-only.
-- No issue deletion, time entries, watcher removal or project administration.
+- No issue deletion, time-entry editing/deletion, watcher removal or project
+  administration.
 - Setting nullable ids (assignee, version, category) is supported; clearing them
   is not exposed. Dates can be cleared with an empty string.
 - API-key authentication only (no OAuth).

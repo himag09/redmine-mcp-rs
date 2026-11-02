@@ -48,7 +48,12 @@ impl App {
 pub fn is_write(name: &str) -> bool {
     matches!(
         name,
-        "create_issue" | "update_issue" | "add_issue_note" | "transition_issue" | "add_attachment"
+        "create_issue"
+            | "update_issue"
+            | "add_issue_note"
+            | "transition_issue"
+            | "add_attachment"
+            | "log_time"
     )
 }
 
@@ -68,6 +73,8 @@ pub fn is_known(name: &str) -> bool {
             | "get_project_versions"
             | "get_project_categories"
             | "get_metadata"
+            | "log_time"
+            | "list_time_entries"
     )
 }
 
@@ -79,11 +86,13 @@ pub fn specs(read_only: bool) -> Vec<Value> {
         list_projects_spec(),
         list_trackers_statuses_spec(),
         read_issue_spec(),
+        list_time_entries_spec(),
         add_issue_note_spec(),
         transition_issue_spec(),
         find_issues_spec(),
         search_spec(),
         add_attachment_spec(),
+        log_time_spec(),
         get_project_versions_spec(),
         get_project_categories_spec(),
         get_metadata_spec(),
@@ -113,11 +122,13 @@ pub async fn call(app: &App, name: &str, args: Value) -> Result<Value> {
         "list_projects" => list_projects(app, args).await,
         "list_trackers_statuses" => list_trackers_statuses(app, args).await,
         "read_issue" => read_issue(app, args).await,
+        "list_time_entries" => list_time_entries(app, args).await,
         "add_issue_note" => add_issue_note(app, args).await,
         "transition_issue" => transition_issue(app, args).await,
         "find_issues" => find_issues(app, args).await,
         "search" => search(app, args).await,
         "add_attachment" => add_attachment(app, args).await,
+        "log_time" => log_time(app, args).await,
         "get_project_versions" => get_project_versions(app, args).await,
         "get_project_categories" => get_project_categories(app, args).await,
         "get_metadata" => get_metadata(app, args).await,
@@ -168,6 +179,23 @@ async fn read_issue(app: &App, args: Value) -> Result<Value> {
     };
     let response = app.client.get_issue(args.issue_id, &include).await?;
     Ok(unwrap_issue(response))
+}
+
+async fn list_time_entries(app: &App, args: Value) -> Result<Value> {
+    let args: ListTimeEntriesArgs = parse_args("list_time_entries", args)?;
+    ensure_positive("issue_id", args.issue_id)?;
+    let limit = validate_limit(args.limit)?;
+    let offset = args.offset.unwrap_or(0);
+    app.client
+        .list_time_entries(args.issue_id, limit, offset)
+        .await
+}
+
+async fn log_time(app: &App, args: Value) -> Result<Value> {
+    let args: LogTimeArgs = parse_args("log_time", args)?;
+    let time_entry = build_time_entry(&args)?;
+    let response = app.client.create_time_entry(&time_entry).await?;
+    Ok(unwrap_time_entry(response))
 }
 
 async fn add_issue_note(app: &App, args: Value) -> Result<Value> {
@@ -262,12 +290,13 @@ async fn get_project_categories(app: &App, args: Value) -> Result<Value> {
 async fn get_metadata(app: &App, args: Value) -> Result<Value> {
     let _: EmptyArgs = parse_args("get_metadata", args)?;
 
-    let (projects, trackers, statuses, users, priorities) = tokio::join!(
+    let (projects, trackers, statuses, users, priorities, activities) = tokio::join!(
         app.client.list_projects(MAX_PAGE_SIZE, 0),
         app.client.get_trackers(),
         app.client.get_issue_statuses(),
         app.client.get_users(MAX_PAGE_SIZE, 0),
         app.client.get_priorities(),
+        app.client.get_time_entry_activities(),
     );
 
     // Fundamental reference data: fail loudly if unavailable.
@@ -296,6 +325,14 @@ async fn get_metadata(app: &App, args: Value) -> Result<Value> {
         }
     };
 
+    let activities = match activities {
+        Ok(value) => array_field(value, "time_entry_activities"),
+        Err(error) => {
+            warnings.push(format!("time entry activities unavailable: {error}"));
+            json!([])
+        }
+    };
+
     warn_if_truncated(
         &projects,
         "projects",
@@ -309,6 +346,7 @@ async fn get_metadata(app: &App, args: Value) -> Result<Value> {
         "statuses": array_field(statuses, "issue_statuses"),
         "users": users,
         "priorities": priorities,
+        "time_entry_activities": activities,
         "warnings": warnings,
     }))
 }
@@ -411,6 +449,24 @@ struct TransitionArgs {
     status_id: u64,
     notes: Option<String>,
     private_notes: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ListTimeEntriesArgs {
+    issue_id: u64,
+    limit: Option<u32>,
+    offset: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LogTimeArgs {
+    issue_id: u64,
+    hours: f64,
+    activity_id: u64,
+    spent_on: Option<String>,
+    comments: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -610,6 +666,31 @@ fn build_update_issue(args: &UpdateIssueArgs) -> Result<Value> {
     Ok(Value::Object(issue))
 }
 
+fn build_time_entry(args: &LogTimeArgs) -> Result<Value> {
+    ensure_positive("issue_id", args.issue_id)?;
+    ensure_positive("activity_id", args.activity_id)?;
+    let hours = time_entry_hours(args.hours)?;
+
+    let mut entry = Map::new();
+    entry.insert("issue_id".to_string(), json!(args.issue_id));
+    entry.insert("hours".to_string(), hours);
+    entry.insert("activity_id".to_string(), json!(args.activity_id));
+
+    if let Some(date) = &args.spent_on {
+        validate_date("spent_on", date)?;
+        entry.insert("spent_on".to_string(), json!(date));
+    }
+
+    if let Some(comments) = &args.comments {
+        let comments = comments.trim();
+        if !comments.is_empty() {
+            entry.insert("comments".to_string(), json!(comments));
+        }
+    }
+
+    Ok(Value::Object(entry))
+}
+
 fn build_issue_query(args: &FindIssuesArgs) -> Result<Vec<(String, String)>> {
     if args.subject.is_some() && args.subject_contains.is_some() {
         return Err(Error::validation(
@@ -805,6 +886,16 @@ fn unwrap_issue(value: Value) -> Value {
     }
 }
 
+fn unwrap_time_entry(value: Value) -> Value {
+    match value {
+        Value::Object(mut map) => match map.remove("time_entry") {
+            Some(entry) => entry,
+            None => Value::Object(map),
+        },
+        other => other,
+    }
+}
+
 fn array_field(value: Value, key: &str) -> Value {
     value
         .get(key)
@@ -884,6 +975,17 @@ fn estimated_hours_value(hours: f64) -> Result<Value> {
     serde_json::Number::from_f64(hours)
         .map(Value::Number)
         .ok_or_else(|| Error::validation("estimated_hours is not a valid number"))
+}
+
+fn time_entry_hours(hours: f64) -> Result<Value> {
+    if !hours.is_finite() || hours <= 0.0 || hours > 24.0 {
+        return Err(Error::validation(
+            "hours must be a finite number greater than 0 and at most 24",
+        ));
+    }
+    serde_json::Number::from_f64(hours)
+        .map(Value::Number)
+        .ok_or_else(|| Error::validation("hours is not a valid number"))
 }
 
 fn validate_date(name: &str, value: &str) -> Result<()> {
@@ -1339,6 +1441,25 @@ fn read_issue_spec() -> Value {
     })
 }
 
+fn list_time_entries_spec() -> Value {
+    json!({
+        "name": "list_time_entries",
+        "title": "List time entries",
+        "description": "List time entries logged on an issue, including hours, spent_on, activity, user and comments. Returns {time_entries, total_count, offset, limit}.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "issue_id": id_prop("Issue id."),
+                "limit": limit_prop(),
+                "offset": offset_prop()
+            },
+            "required": ["issue_id"],
+            "additionalProperties": false
+        },
+        "annotations": read_annotations()
+    })
+}
+
 fn add_issue_note_spec() -> Value {
     json!({
         "name": "add_issue_note",
@@ -1481,6 +1602,32 @@ fn add_attachment_spec() -> Value {
     })
 }
 
+fn log_time_spec() -> Value {
+    json!({
+        "name": "log_time",
+        "title": "Log spent time",
+        "description": "Log spent time on an issue. Get activity_id from get_metadata (time_entry_activities). WARNING: writes to the configured Redmine instance; call it only after the user explicitly confirms the exact time entry.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "issue_id": id_prop("Issue id."),
+                "hours": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 24,
+                    "description": "Hours to log (greater than 0, at most 24)."
+                },
+                "activity_id": id_prop("Time entry activity id (see get_metadata)."),
+                "spent_on": date_prop("Date in YYYY-MM-DD format; defaults to Redmine's today when omitted."),
+                "comments": { "type": "string", "description": "Optional comment for the time entry." }
+            },
+            "required": ["issue_id", "hours", "activity_id"],
+            "additionalProperties": false
+        },
+        "annotations": write_annotations(false, false)
+    })
+}
+
 fn get_project_versions_spec() -> Value {
     json!({
         "name": "get_project_versions",
@@ -1519,7 +1666,7 @@ fn get_metadata_spec() -> Value {
     json!({
         "name": "get_metadata",
         "title": "Get metadata",
-        "description": "Fetch projects, trackers, statuses, users and priorities in one call. Users require admin rights in Redmine; when unavailable, users is empty and warnings explains why. Only the first 100 projects/users are returned.",
+        "description": "Fetch projects, trackers, statuses, users, priorities and time entry activities in one call. Users require admin rights in Redmine; when unavailable, users is empty and warnings explains why. Only the first 100 projects/users are returned.",
         "inputSchema": empty_schema(),
         "annotations": read_annotations()
     })
@@ -1539,6 +1686,10 @@ mod tests {
 
     fn parse_find(value: Value) -> FindIssuesArgs {
         serde_json::from_value(value).expect("valid find args")
+    }
+
+    fn parse_log_time(value: Value) -> LogTimeArgs {
+        serde_json::from_value(value).expect("valid log time args")
     }
 
     #[test]
@@ -1779,13 +1930,69 @@ mod tests {
     fn read_only_mode_hides_write_tools() {
         let all = specs(false);
         let reads = specs(true);
-        assert_eq!(all.len(), 13);
-        assert_eq!(reads.len(), 8);
+        assert_eq!(all.len(), 15);
+        assert_eq!(reads.len(), 9);
         assert!(
             reads
                 .iter()
                 .all(|tool| !is_write(tool.get("name").and_then(Value::as_str).unwrap_or("")))
         );
+    }
+
+    #[test]
+    fn builds_time_entry_payload_and_trims_comments() {
+        let args = parse_log_time(json!({
+            "issue_id": 42,
+            "hours": 2.5,
+            "activity_id": 9,
+            "spent_on": "2026-11-02",
+            "comments": "  Implementación  "
+        }));
+        let entry = build_time_entry(&args).expect("valid time entry");
+        assert_eq!(entry["issue_id"], json!(42));
+        assert_eq!(entry["hours"], json!(2.5));
+        assert_eq!(entry["activity_id"], json!(9));
+        assert_eq!(entry["spent_on"], json!("2026-11-02"));
+        assert_eq!(entry["comments"], json!("Implementación"));
+
+        let args = parse_log_time(json!({
+            "issue_id": 42,
+            "hours": 1,
+            "activity_id": 9
+        }));
+        let entry = build_time_entry(&args).expect("valid minimal time entry");
+        assert!(entry.get("spent_on").is_none());
+        assert!(entry.get("comments").is_none());
+    }
+
+    #[test]
+    fn rejects_invalid_time_entry_values() {
+        for hours in [0.0, -1.0, 24.1] {
+            let args = parse_log_time(json!({
+                "issue_id": 42,
+                "hours": hours,
+                "activity_id": 9
+            }));
+            assert!(
+                build_time_entry(&args).is_err(),
+                "hours {hours} should fail"
+            );
+        }
+
+        let args = parse_log_time(json!({
+            "issue_id": 42,
+            "hours": 2,
+            "activity_id": 0
+        }));
+        assert!(build_time_entry(&args).is_err());
+
+        let args = parse_log_time(json!({
+            "issue_id": 42,
+            "hours": 2,
+            "activity_id": 9,
+            "spent_on": "2025-02-29"
+        }));
+        assert!(build_time_entry(&args).is_err());
     }
 
     #[test]

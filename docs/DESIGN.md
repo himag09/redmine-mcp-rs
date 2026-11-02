@@ -31,20 +31,22 @@ tools for agents that need to update issues.
 
 ## Tool surface
 
-The server exposes 13 tools: 8 read-only and 5 write tools. The read side covers
-projects, issues, search, reference data, versions and categories. The write
-side covers issue creation, updates, notes, transitions and attachments.
+The server exposes 15 tools: 9 read-only and 6 write tools. The read side covers
+projects, issues, search, reference data, versions, categories and time entries.
+The write side covers issue creation, updates, notes, transitions, attachments
+and time logging.
 
 `search` was added after the review because `find_issues` only searches the
 subject with Redmine's `~` operator. The global search endpoint covers issue
 descriptions, comments, wiki pages, news, documents, changesets, messages and
 projects. It is read-only, paginated and origin-checked.
 
-We intentionally did **not** add time entries, news, wiki editing, issue
-relations management, deletions, watchers or project administration. They are
-valid Redmine features, but each one adds schema and context cost, and the
-example's goal is a focused issue workflow. Add them as separate tools when a
-concrete workflow needs them.
+The write surface stays deliberately small: issue changes, notes, transitions,
+attachments and time logging. We intentionally did **not** add time-entry
+editing/deletion, news, wiki editing, issue relations management, deletions,
+watchers or project administration. They are valid Redmine features, but each
+one adds schema and context cost, and the example's goal is a focused issue
+workflow. Add them as separate tools when a concrete workflow needs them.
 
 ## Protocol compatibility
 
@@ -59,7 +61,7 @@ an end-to-end test that sends a >16 MiB line.
 
 Compatibility was verified with the client DSH uses
 (`@modelcontextprotocol/client` 2.2.0, `versionNegotiation: auto`): the
-handshake succeeded, `tools/list` returned 13 tools and `list_projects` read
+handshake succeeded, `tools/list` returned 15 tools and `list_projects` read
 real Redmine data.
 
 The typed `#[tool_router]`/`schemars` layer of `rmcp` is not used: the explicit

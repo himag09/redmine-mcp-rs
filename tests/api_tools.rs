@@ -301,6 +301,10 @@ async fn metadata_degrades_when_users_are_forbidden() {
         "/enumerations/issue_priorities.json" => {
             MockResponse::json(200, r#"{"issue_priorities":[{"id":2,"name":"Normal"}]}"#)
         }
+        "/enumerations/time_entry_activities.json" => MockResponse::json(
+            200,
+            r#"{"time_entry_activities":[{"id":9,"name":"Development"}]}"#,
+        ),
         _ => MockResponse::json(404, "{}"),
     });
     let app = test_app(&mock, false);
@@ -310,6 +314,10 @@ async fn metadata_degrades_when_users_are_forbidden() {
     assert_eq!(result["projects"][0]["name"], json!("P"));
     assert_eq!(result["users"], json!([]));
     assert_eq!(result["priorities"][0]["name"], json!("Normal"));
+    assert_eq!(
+        result["time_entry_activities"][0]["name"],
+        json!("Development")
+    );
     let warnings = result["warnings"].as_array().expect("warnings");
     assert!(
         warnings.iter().any(
@@ -318,7 +326,7 @@ async fn metadata_degrades_when_users_are_forbidden() {
         ),
         "warnings were: {warnings:?}"
     );
-    assert_eq!(mock.request_count(), 5);
+    assert_eq!(mock.request_count(), 6);
 }
 
 #[tokio::test]
@@ -333,6 +341,9 @@ async fn metadata_warns_when_projects_are_truncated() {
         "/users.json" => MockResponse::json(200, r#"{"users":[],"total_count":0}"#),
         "/enumerations/issue_priorities.json" => {
             MockResponse::json(200, r#"{"issue_priorities":[]}"#)
+        }
+        "/enumerations/time_entry_activities.json" => {
+            MockResponse::json(200, r#"{"time_entry_activities":[]}"#)
         }
         _ => MockResponse::json(404, "{}"),
     });
@@ -662,6 +673,9 @@ async fn metadata_reports_unavailable_priorities() {
         "/enumerations/issue_priorities.json" => {
             MockResponse::json(403, r#"{"errors":["Forbidden"]}"#)
         }
+        "/enumerations/time_entry_activities.json" => {
+            MockResponse::json(200, r#"{"time_entry_activities":[]}"#)
+        }
         _ => MockResponse::json(404, "{}"),
     });
     let app = test_app(&mock, false);
@@ -776,6 +790,99 @@ async fn search_maps_filters_and_sanitizes_result_urls() {
     assert_eq!(request.query_value("all_words").as_deref(), Some(""));
     assert_eq!(request.query_value("titles_only").as_deref(), Some("1"));
     assert_eq!(request.query_value("attachments").as_deref(), Some("only"));
+    assert_eq!(request.query_value("limit").as_deref(), Some("10"));
+    assert_eq!(request.query_value("offset").as_deref(), Some("5"));
+}
+
+#[tokio::test]
+async fn log_time_posts_expected_payload() {
+    let mock = MockRedmine::new(
+        |request| match (request.method.as_str(), request.path.as_str()) {
+            ("POST", "/time_entries.json") => MockResponse::json(
+                201,
+                r#"{"time_entry":{"id":99,"hours":2.5,"comments":"Implementación","spent_on":"2026-11-02"}}"#,
+            ),
+            _ => MockResponse::json(404, "{}"),
+        },
+    );
+    let app = test_app(&mock, false);
+
+    let result = call(
+        &app,
+        "log_time",
+        json!({
+            "issue_id": 42,
+            "hours": 2.5,
+            "activity_id": 9,
+            "spent_on": "2026-11-02",
+            "comments": "  Implementación  "
+        }),
+    )
+    .await;
+
+    assert_eq!(result["id"], json!(99));
+    assert_eq!(result["hours"], json!(2.5));
+    assert_eq!(result["comments"], json!("Implementación"));
+
+    let request = mock.last_request();
+    assert_eq!(request.method, "POST");
+    assert_eq!(request.path, "/time_entries.json");
+    let body = request.json_body();
+    assert_eq!(body["time_entry"]["issue_id"], json!(42));
+    assert_eq!(body["time_entry"]["hours"], json!(2.5));
+    assert_eq!(body["time_entry"]["activity_id"], json!(9));
+    assert_eq!(body["time_entry"]["spent_on"], json!("2026-11-02"));
+    assert_eq!(body["time_entry"]["comments"], json!("Implementación"));
+}
+
+#[tokio::test]
+async fn log_time_rejects_invalid_arguments_before_http() {
+    let mock = MockRedmine::new(|_| MockResponse::json(201, "{}"));
+    let app = test_app(&mock, false);
+
+    for args in [
+        json!({ "issue_id": 42, "hours": 0, "activity_id": 9 }),
+        json!({ "issue_id": 42, "hours": 25, "activity_id": 9 }),
+        json!({ "issue_id": 42, "hours": 2, "activity_id": 0 }),
+        json!({ "issue_id": 42, "hours": 2, "activity_id": 9, "spent_on": "2025-02-29" }),
+    ] {
+        assert!(
+            tools::call(&app, "log_time", args).await.is_err(),
+            "invalid time entry should be rejected"
+        );
+    }
+
+    assert_eq!(mock.request_count(), 0);
+}
+
+#[tokio::test]
+async fn list_time_entries_reads_hours_and_comments() {
+    let mock = MockRedmine::new(
+        |request| match (request.method.as_str(), request.path.as_str()) {
+            ("GET", "/time_entries.json") => MockResponse::json(
+                200,
+                r#"{"time_entries":[{"id":7,"hours":1.5,"comments":"Revisión","spent_on":"2026-11-02","activity":{"id":9,"name":"Development"}}],"total_count":1,"offset":5,"limit":10}"#,
+            ),
+            _ => MockResponse::json(404, "{}"),
+        },
+    );
+    let app = test_app(&mock, false);
+
+    let result = call(
+        &app,
+        "list_time_entries",
+        json!({ "issue_id": 42, "limit": 10, "offset": 5 }),
+    )
+    .await;
+
+    assert_eq!(result["total_count"], json!(1));
+    assert_eq!(result["time_entries"][0]["hours"], json!(1.5));
+    assert_eq!(result["time_entries"][0]["comments"], json!("Revisión"));
+
+    let request = mock.last_request();
+    assert_eq!(request.method, "GET");
+    assert_eq!(request.path, "/time_entries.json");
+    assert_eq!(request.query_value("issue_id").as_deref(), Some("42"));
     assert_eq!(request.query_value("limit").as_deref(), Some("10"));
     assert_eq!(request.query_value("offset").as_deref(), Some("5"));
 }

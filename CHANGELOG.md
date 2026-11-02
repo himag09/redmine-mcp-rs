@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## 1.1.0 - 2026-11-02
+
+### Added
+
+- `log_time` write tool for `POST /time_entries.json` with issue, hours,
+  activity, date and comments.
+- `list_time_entries` read tool for hours, comments, activity and user per issue,
+  with pagination.
+- `get_metadata` now returns `time_entry_activities`.
+- Time-entry validation (hours 0-24, dates, positive ids), read-only enforcement,
+  mock HTTP and stdio coverage (91 tests).
+
 ## 1.0.0 - 2026-10-30
 
 ### Added

@@ -241,6 +241,23 @@ impl RedmineClient {
         self.get("search.json", query).await
     }
 
+    // --- Time entries ---------------------------------------------------
+
+    pub async fn list_time_entries(&self, issue_id: u64, limit: u32, offset: u32) -> Result<Value> {
+        let mut query = vec![("issue_id".to_string(), issue_id.to_string())];
+        query.extend(page_query(limit, offset));
+        self.get("time_entries.json", &query).await
+    }
+
+    pub async fn create_time_entry(&self, time_entry: &Value) -> Result<Value> {
+        self.send_json(
+            Method::POST,
+            "time_entries.json",
+            &json!({ "time_entry": time_entry }),
+        )
+        .await
+    }
+
     pub async fn create_issue(&self, issue: &Value) -> Result<Value> {
         self.send_json(Method::POST, "issues.json", &json!({ "issue": issue }))
             .await
@@ -360,6 +377,11 @@ impl RedmineClient {
 
     pub async fn get_priorities(&self) -> Result<Value> {
         self.get("enumerations/issue_priorities.json", &[]).await
+    }
+
+    pub async fn get_time_entry_activities(&self) -> Result<Value> {
+        self.get("enumerations/time_entry_activities.json", &[])
+            .await
     }
 
     pub async fn get_users(&self, limit: u32, offset: u32) -> Result<Value> {

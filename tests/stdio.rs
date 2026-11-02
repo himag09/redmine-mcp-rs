@@ -160,7 +160,7 @@ fn initialize_and_list_tools() {
     let list = process.recv();
     assert_eq!(list["id"], json!(2));
     let tools = list["result"]["tools"].as_array().expect("tools array");
-    assert_eq!(tools.len(), 13);
+    assert_eq!(tools.len(), 15);
 
     let read_issue = tools
         .iter()
@@ -215,7 +215,7 @@ fn read_only_mode_hides_and_rejects_write_tools() {
         "params": {}
     }));
     let list = process.recv();
-    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 8);
+    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 9);
 
     process.send(json!({
         "jsonrpc": "2.0",
@@ -498,4 +498,64 @@ fn accepts_attachment_messages_above_the_sdk_default_line_limit() {
     let requests = mock.requests();
     assert_eq!(requests[0].path, "/uploads.json");
     assert_eq!(requests[0].body.len(), data.len());
+}
+
+#[test]
+fn time_entry_tools_work_over_stdio() {
+    let mock = MockRedmine::new(
+        |request| match (request.method.as_str(), request.path.as_str()) {
+            ("POST", "/time_entries.json") => MockResponse::json(
+                201,
+                r#"{"time_entry":{"id":1,"hours":2.0,"comments":"ok"}}"#,
+            ),
+            ("GET", "/time_entries.json") => MockResponse::json(
+                200,
+                r#"{"time_entries":[{"id":1,"hours":2.0,"comments":"ok"}],"total_count":1,"offset":0,"limit":25}"#,
+            ),
+            _ => MockResponse::json(404, "{}"),
+        },
+    );
+    let mut process = McpProcess::spawn(&mock, &[]);
+    initialize(&mut process);
+
+    process.send(json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+            "name": "log_time",
+            "arguments": {
+                "issue_id": 1,
+                "hours": 2.0,
+                "activity_id": 9,
+                "comments": "ok"
+            }
+        }
+    }));
+    let response = process.recv();
+    assert_eq!(response["id"], json!(2));
+    assert_eq!(response["result"]["isError"], json!(false));
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .expect("text content");
+    let entry: Value = serde_json::from_str(text).expect("time entry JSON");
+    assert_eq!(entry["id"], json!(1));
+
+    process.send(json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {
+            "name": "list_time_entries",
+            "arguments": { "issue_id": 1 }
+        }
+    }));
+    let response = process.recv();
+    assert_eq!(response["id"], json!(3));
+    assert_eq!(response["result"]["isError"], json!(false));
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .expect("text content");
+    let list: Value = serde_json::from_str(text).expect("time entries JSON");
+    assert_eq!(list["time_entries"][0]["comments"], json!("ok"));
 }
