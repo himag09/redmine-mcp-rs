@@ -26,6 +26,19 @@ const DEFAULT_PAGE_SIZE: u32 = 25;
 const MAX_PAGE_SIZE: u32 = 100;
 const SUBJECT_MAX_CHARS: usize = 255;
 const FILENAME_MAX_CHARS: usize = 255;
+const RELATION_TYPES: [&str; 11] = [
+    "relates",
+    "duplicates",
+    "duplicated",
+    "blocks",
+    "blocked",
+    "precedes",
+    "follows",
+    "copies",
+    "copied_to",
+    "closes",
+    "closed_by",
+];
 
 /// Shared application state.
 pub struct App {
@@ -56,6 +69,8 @@ pub fn is_write(name: &str) -> bool {
             | "log_time"
             | "update_time_entry"
             | "delete_time_entry"
+            | "add_issue_relation"
+            | "delete_issue_relation"
     )
 }
 
@@ -79,6 +94,9 @@ pub fn is_known(name: &str) -> bool {
             | "list_time_entries"
             | "update_time_entry"
             | "delete_time_entry"
+            | "add_issue_relation"
+            | "delete_issue_relation"
+            | "list_project_members"
     )
 }
 
@@ -99,8 +117,11 @@ pub fn specs(read_only: bool) -> Vec<Value> {
         log_time_spec(),
         update_time_entry_spec(),
         delete_time_entry_spec(),
+        add_issue_relation_spec(),
+        delete_issue_relation_spec(),
         get_project_versions_spec(),
         get_project_categories_spec(),
+        list_project_members_spec(),
         get_metadata_spec(),
     ];
     if read_only {
@@ -137,8 +158,11 @@ pub async fn call(app: &App, name: &str, args: Value) -> Result<Value> {
         "log_time" => log_time(app, args).await,
         "update_time_entry" => update_time_entry(app, args).await,
         "delete_time_entry" => delete_time_entry(app, args).await,
+        "add_issue_relation" => add_issue_relation(app, args).await,
+        "delete_issue_relation" => delete_issue_relation(app, args).await,
         "get_project_versions" => get_project_versions(app, args).await,
         "get_project_categories" => get_project_categories(app, args).await,
+        "list_project_members" => list_project_members(app, args).await,
         "get_metadata" => get_metadata(app, args).await,
         other => Err(Error::protocol(format!("unknown tool: {other}"))),
     }
@@ -221,6 +245,33 @@ async fn delete_time_entry(app: &App, args: Value) -> Result<Value> {
     ensure_positive("time_entry_id", args.time_entry_id)?;
     app.client.delete_time_entry(args.time_entry_id).await?;
     Ok(json!({ "id": args.time_entry_id, "deleted": true }))
+}
+
+async fn add_issue_relation(app: &App, args: Value) -> Result<Value> {
+    let args: AddIssueRelationArgs = parse_args("add_issue_relation", args)?;
+    let relation = build_issue_relation(&args)?;
+    let response = app
+        .client
+        .create_issue_relation(args.issue_id, &relation)
+        .await?;
+    Ok(unwrap_relation(response))
+}
+
+async fn delete_issue_relation(app: &App, args: Value) -> Result<Value> {
+    let args: DeleteIssueRelationArgs = parse_args("delete_issue_relation", args)?;
+    ensure_positive("relation_id", args.relation_id)?;
+    app.client.delete_issue_relation(args.relation_id).await?;
+    Ok(json!({ "id": args.relation_id, "deleted": true }))
+}
+
+async fn list_project_members(app: &App, args: Value) -> Result<Value> {
+    let args: ProjectMembersArgs = parse_args("list_project_members", args)?;
+    ensure_positive("project_id", args.project_id)?;
+    let limit = validate_limit(args.limit)?;
+    let offset = args.offset.unwrap_or(0);
+    app.client
+        .get_project_members(args.project_id, limit, offset)
+        .await
 }
 
 async fn add_issue_note(app: &App, args: Value) -> Result<Value> {
@@ -512,6 +563,29 @@ struct DeleteTimeEntryArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct AddIssueRelationArgs {
+    issue_id: u64,
+    issue_to_id: u64,
+    relation_type: String,
+    delay: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeleteIssueRelationArgs {
+    relation_id: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectMembersArgs {
+    project_id: u64,
+    limit: Option<u32>,
+    offset: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct FindIssuesArgs {
     project_id: Option<u64>,
     tracker_id: Option<u64>,
@@ -759,6 +833,30 @@ fn build_time_entry_update(args: &UpdateTimeEntryArgs) -> Result<Value> {
     Ok(Value::Object(entry))
 }
 
+fn build_issue_relation(args: &AddIssueRelationArgs) -> Result<Value> {
+    ensure_positive("issue_id", args.issue_id)?;
+    ensure_positive("issue_to_id", args.issue_to_id)?;
+    if args.issue_id == args.issue_to_id {
+        return Err(Error::validation(
+            "issue_to_id must be different from issue_id",
+        ));
+    }
+    let relation_type = validate_relation_type(&args.relation_type)?;
+    if args.delay.is_some() && !matches!(relation_type.as_str(), "precedes" | "follows") {
+        return Err(Error::validation(
+            "delay is only valid for precedes or follows relations",
+        ));
+    }
+
+    let mut relation = Map::new();
+    relation.insert("issue_to_id".to_string(), json!(args.issue_to_id));
+    relation.insert("relation_type".to_string(), json!(relation_type));
+    if let Some(delay) = args.delay {
+        relation.insert("delay".to_string(), json!(delay));
+    }
+    Ok(Value::Object(relation))
+}
+
 fn build_issue_query(args: &FindIssuesArgs) -> Result<Vec<(String, String)>> {
     if args.subject.is_some() && args.subject_contains.is_some() {
         return Err(Error::validation(
@@ -954,6 +1052,16 @@ fn unwrap_issue(value: Value) -> Value {
     }
 }
 
+fn unwrap_relation(value: Value) -> Value {
+    match value {
+        Value::Object(mut map) => match map.remove("relation") {
+            Some(relation) => relation,
+            None => Value::Object(map),
+        },
+        other => other,
+    }
+}
+
 fn unwrap_time_entry(value: Value) -> Value {
     match value {
         Value::Object(mut map) => match map.remove("time_entry") {
@@ -1043,6 +1151,17 @@ fn estimated_hours_value(hours: f64) -> Result<Value> {
     serde_json::Number::from_f64(hours)
         .map(Value::Number)
         .ok_or_else(|| Error::validation("estimated_hours is not a valid number"))
+}
+
+fn validate_relation_type(value: &str) -> Result<String> {
+    let value = value.trim().to_ascii_lowercase();
+    if !RELATION_TYPES.contains(&value.as_str()) {
+        return Err(Error::validation(format!(
+            "relation_type must be one of {} (got {value:?})",
+            RELATION_TYPES.join(", ")
+        )));
+    }
+    Ok(value)
 }
 
 fn time_entry_hours(hours: f64) -> Result<Value> {
@@ -1739,6 +1858,70 @@ fn delete_time_entry_spec() -> Value {
     })
 }
 
+fn add_issue_relation_spec() -> Value {
+    json!({
+        "name": "add_issue_relation",
+        "title": "Add issue relation",
+        "description": "Create a relation between two issues. Use read_issue with include=[\"relations\"] to inspect existing relations. WARNING: writes to the configured Redmine instance; call it only after the user explicitly confirms the relation.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "issue_id": id_prop("Source issue id."),
+                "issue_to_id": id_prop("Target issue id."),
+                "relation_type": {
+                    "type": "string",
+                    "enum": RELATION_TYPES,
+                    "description": "Redmine relation type."
+                },
+                "delay": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Delay in days; only for precedes or follows."
+                }
+            },
+            "required": ["issue_id", "issue_to_id", "relation_type"],
+            "additionalProperties": false
+        },
+        "annotations": write_annotations(false, false)
+    })
+}
+
+fn delete_issue_relation_spec() -> Value {
+    json!({
+        "name": "delete_issue_relation",
+        "title": "Delete issue relation",
+        "description": "Delete an issue relation permanently. WARNING: destructive write to the configured Redmine instance; call it only after the user explicitly confirms the exact relation.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "relation_id": id_prop("Relation id.")
+            },
+            "required": ["relation_id"],
+            "additionalProperties": false
+        },
+        "annotations": write_annotations(true, true)
+    })
+}
+
+fn list_project_members_spec() -> Value {
+    json!({
+        "name": "list_project_members",
+        "title": "List project members",
+        "description": "List a project's memberships (users or groups and roles). Use the returned user ids in assigned_to_id, watcher_user_ids and time entry filters. Unlike GET /users.json, this can work without Redmine administrator rights.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "project_id": id_prop("Project id."),
+                "limit": limit_prop(),
+                "offset": offset_prop()
+            },
+            "required": ["project_id"],
+            "additionalProperties": false
+        },
+        "annotations": read_annotations()
+    })
+}
+
 fn get_project_versions_spec() -> Value {
     json!({
         "name": "get_project_versions",
@@ -1805,6 +1988,10 @@ mod tests {
 
     fn parse_update_time(value: Value) -> UpdateTimeEntryArgs {
         serde_json::from_value(value).expect("valid update time args")
+    }
+
+    fn parse_relation(value: Value) -> AddIssueRelationArgs {
+        serde_json::from_value(value).expect("valid relation args")
     }
 
     #[test]
@@ -2045,8 +2232,8 @@ mod tests {
     fn read_only_mode_hides_write_tools() {
         let all = specs(false);
         let reads = specs(true);
-        assert_eq!(all.len(), 17);
-        assert_eq!(reads.len(), 9);
+        assert_eq!(all.len(), 20);
+        assert_eq!(reads.len(), 10);
         assert!(
             reads
                 .iter()
@@ -2143,6 +2330,41 @@ mod tests {
         ] {
             let args = parse_update_time(update);
             assert!(build_time_entry_update(&args).is_err());
+        }
+    }
+
+    #[test]
+    fn builds_issue_relation_and_validates_delay() {
+        let args = parse_relation(json!({
+            "issue_id": 1,
+            "issue_to_id": 2,
+            "relation_type": "precedes",
+            "delay": 3
+        }));
+        let relation = build_issue_relation(&args).expect("valid relation");
+        assert_eq!(relation["issue_to_id"], json!(2));
+        assert_eq!(relation["relation_type"], json!("precedes"));
+        assert_eq!(relation["delay"], json!(3));
+
+        let args = parse_relation(json!({
+            "issue_id": 1,
+            "issue_to_id": 2,
+            "relation_type": "relates"
+        }));
+        let relation = build_issue_relation(&args).expect("valid relation");
+        assert!(relation.get("delay").is_none());
+    }
+
+    #[test]
+    fn rejects_invalid_issue_relations() {
+        for args in [
+            json!({ "issue_id": 1, "issue_to_id": 1, "relation_type": "relates" }),
+            json!({ "issue_id": 1, "issue_to_id": 2, "relation_type": "unknown" }),
+            json!({ "issue_id": 1, "issue_to_id": 2, "relation_type": "relates", "delay": 2 }),
+            json!({ "issue_id": 0, "issue_to_id": 2, "relation_type": "relates" }),
+        ] {
+            let args = parse_relation(args);
+            assert!(build_issue_relation(&args).is_err());
         }
     }
 

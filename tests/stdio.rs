@@ -160,7 +160,7 @@ fn initialize_and_list_tools() {
     let list = process.recv();
     assert_eq!(list["id"], json!(2));
     let tools = list["result"]["tools"].as_array().expect("tools array");
-    assert_eq!(tools.len(), 17);
+    assert_eq!(tools.len(), 20);
 
     let read_issue = tools
         .iter()
@@ -215,7 +215,7 @@ fn read_only_mode_hides_and_rejects_write_tools() {
         "params": {}
     }));
     let list = process.recv();
-    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 9);
+    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 10);
 
     process.send(json!({
         "jsonrpc": "2.0",

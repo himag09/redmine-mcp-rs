@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## 1.3.0 - 2026-11-02
+
+### Added
+
+- `add_issue_relation` and `delete_issue_relation` for Redmine issue relations,
+  including `relates`, `blocks`, `precedes`, `follows` and other relation types.
+- `list_project_members` for project memberships and roles without requiring
+  Redmine administrator rights.
+- Documented parent/child issues and relation reading.
+- Tests now cover 102 cases across unit, mock-HTTP and stdio layers.
+
 ## 1.2.0 - 2026-11-02
 
 ### Added

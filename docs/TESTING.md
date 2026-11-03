@@ -22,11 +22,11 @@ cargo test --locked -- --nocapture        # show stdout from failing tests
 
 | Layer | Location | Tests | Network |
 | --- | --- | ---: | --- |
-| Unit | `src/**` `#[cfg(test)]` modules | 48 | none |
+| Unit | `src/**` `#[cfg(test)]` modules | 50 | none |
 | CLI | `src/main.rs` tests | 1 | none |
-| Integration | `tests/api_tools.rs` | 33 | localhost mock only |
+| Integration | `tests/api_tools.rs` | 37 | localhost mock only |
 | End-to-end | `tests/stdio.rs` | 14 | localhost mock only |
-| **Total** | | **96** | |
+| **Total** | | **102** | |
 
 Counts are from the current suite; use `cargo test --locked` to see the exact
 numbers on your checkout.
@@ -78,6 +78,10 @@ numbers on your checkout.
 - `list_time_entries`: issue filter, pagination query, hours/comments response.
 - `update_time_entry`: partial payloads, comments clearing, validation, PUT path.
 - `delete_time_entry`: DELETE path and empty request body.
+- `add_issue_relation` / `delete_issue_relation`: relation types, delay rules,
+  self-relation rejection, POST payload and DELETE path.
+- `list_project_members`: project memberships, roles and pagination; works
+  without the admin-only `/users.json`.
 - `create_issue`: default project, omitted fields, custom fields, watcher
   deduplication, date/range validation.
 - `update_issue`: partial payloads, empty description/date handling, notes,
@@ -87,6 +91,9 @@ numbers on your checkout.
   upload token flow, invalid base64 rejection.
 - Time entries: `POST`, `PUT` and `DELETE /time_entries/{id}.json`, `GET
   /time_entries.json` payloads, pagination, comments and activities.
+- Relations: `POST /issues/{id}/relations.json` and
+  `DELETE /relations/{id}.json`; project memberships under
+  `/projects/{id}/memberships.json`.
 - Page size bounds (1–100, default 25) and exact-subject filtering.
 - Read-only mode: tools hidden from `tools/list` and rejected at call time.
 - Tool schemas: every spec has a name, description, object input schema and

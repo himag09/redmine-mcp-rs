@@ -972,6 +972,98 @@ async fn time_entry_updates_validate_before_http() {
 }
 
 #[tokio::test]
+async fn add_issue_relation_posts_expected_payload() {
+    let mock = MockRedmine::new(
+        |request| match (request.method.as_str(), request.path.as_str()) {
+            ("POST", "/issues/42/relations.json") => MockResponse::json(
+                201,
+                r#"{"relation":{"id":7,"issue_id":42,"issue_to_id":99,"relation_type":"relates"}}"#,
+            ),
+            _ => MockResponse::json(404, "{}"),
+        },
+    );
+    let app = test_app(&mock, false);
+
+    let result = call(
+        &app,
+        "add_issue_relation",
+        json!({ "issue_id": 42, "issue_to_id": 99, "relation_type": "relates" }),
+    )
+    .await;
+
+    assert_eq!(result["id"], json!(7));
+    assert_eq!(result["relation_type"], json!("relates"));
+
+    let request = mock.last_request();
+    assert_eq!(request.method, "POST");
+    assert_eq!(request.path, "/issues/42/relations.json");
+    let body = request.json_body();
+    assert_eq!(body["relation"]["issue_to_id"], json!(99));
+    assert_eq!(body["relation"]["relation_type"], json!("relates"));
+}
+
+#[tokio::test]
+async fn delete_issue_relation_uses_delete_without_body() {
+    let mock = MockRedmine::new(
+        |request| match (request.method.as_str(), request.path.as_str()) {
+            ("DELETE", "/relations/7.json") => MockResponse::empty(204),
+            _ => MockResponse::json(404, "{}"),
+        },
+    );
+    let app = test_app(&mock, false);
+
+    let result = call(&app, "delete_issue_relation", json!({ "relation_id": 7 })).await;
+
+    assert_eq!(result["id"], json!(7));
+    assert_eq!(result["deleted"], json!(true));
+    let request = mock.last_request();
+    assert_eq!(request.method, "DELETE");
+    assert_eq!(request.path, "/relations/7.json");
+    assert!(request.body.is_empty());
+}
+
+#[tokio::test]
+async fn list_project_members_sends_pagination() {
+    let mock = MockRedmine::new(|request| match request.method.as_str() {
+        "GET" => MockResponse::json(
+            200,
+            r#"{"memberships":[{"id":1,"user":{"id":35,"name":"Tester"},"roles":[{"id":4,"name":"Developer"}]}],"total_count":1,"offset":0,"limit":25}"#,
+        ),
+        _ => MockResponse::json(404, "{}"),
+    });
+    let app = test_app(&mock, false);
+
+    let result = call(
+        &app,
+        "list_project_members",
+        json!({ "project_id": 11, "limit": 25, "offset": 0 }),
+    )
+    .await;
+
+    assert_eq!(result["memberships"][0]["user"]["id"], json!(35));
+    let request = mock.last_request();
+    assert_eq!(request.method, "GET");
+    assert_eq!(request.path, "/projects/11/memberships.json");
+    assert_eq!(request.query_value("limit").as_deref(), Some("25"));
+    assert_eq!(request.query_value("offset").as_deref(), Some("0"));
+}
+
+#[tokio::test]
+async fn invalid_relations_fail_before_http() {
+    let mock = MockRedmine::new(|_| MockResponse::empty(204));
+    let app = test_app(&mock, false);
+
+    for args in [
+        json!({ "issue_id": 1, "issue_to_id": 1, "relation_type": "relates" }),
+        json!({ "issue_id": 1, "issue_to_id": 2, "relation_type": "unknown" }),
+        json!({ "issue_id": 1, "issue_to_id": 2, "relation_type": "relates", "delay": 1 }),
+    ] {
+        assert!(tools::call(&app, "add_issue_relation", args).await.is_err());
+    }
+    assert_eq!(mock.request_count(), 0);
+}
+
+#[tokio::test]
 async fn search_rejects_invalid_arguments_before_http() {
     let mock = MockRedmine::new(|_| MockResponse::json(200, r#"{"results":[]}"#));
     let app = test_app(&mock, false);

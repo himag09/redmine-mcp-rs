@@ -290,6 +290,20 @@ impl RedmineClient {
         .await
     }
 
+    pub async fn create_issue_relation(&self, issue_id: u64, relation: &Value) -> Result<Value> {
+        self.send_json(
+            Method::POST,
+            &format!("issues/{issue_id}/relations.json"),
+            &json!({ "relation": relation }),
+        )
+        .await
+    }
+
+    pub async fn delete_issue_relation(&self, relation_id: u64) -> Result<Value> {
+        self.send_no_body(Method::DELETE, &format!("relations/{relation_id}.json"))
+            .await
+    }
+
     pub async fn create_issue(&self, issue: &Value) -> Result<Value> {
         self.send_json(Method::POST, "issues.json", &json!({ "issue": issue }))
             .await
@@ -397,6 +411,19 @@ impl RedmineClient {
     pub async fn get_project_categories(&self, project_id: u64) -> Result<Value> {
         self.get(&format!("projects/{project_id}/issue_categories.json"), &[])
             .await
+    }
+
+    pub async fn get_project_members(
+        &self,
+        project_id: u64,
+        limit: u32,
+        offset: u32,
+    ) -> Result<Value> {
+        self.get(
+            &format!("projects/{project_id}/memberships.json"),
+            &page_query(limit, offset),
+        )
+        .await
     }
 
     pub async fn get_trackers(&self) -> Result<Value> {
