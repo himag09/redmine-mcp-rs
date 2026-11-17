@@ -31,11 +31,11 @@ tools for agents that need to update issues.
 
 ## Tool surface
 
-The server exposes 20 tools: 10 read-only and 10 write tools. The read side covers
-projects, issues, search, reference data, versions, categories, time entries and
-project members. The write side covers issue creation, updates, notes,
-transitions, attachments, time entry creation/updates/deletion, and issue
-relation creation/deletion.
+The server exposes 21 tools: 11 read-only and 10 write tools. The read side covers
+projects, issues, search, reference data, versions, categories, time entries
+(including compact summary), and project members. The write side covers issue
+creation, updates, notes, transitions, attachments, time entry
+creation/updates/deletion, and issue relation creation/deletion.
 
 `search` was added after the review because `find_issues` only searches the
 subject with Redmine's `~` operator. The global search endpoint covers issue
@@ -62,7 +62,7 @@ an end-to-end test that sends a >16 MiB line.
 
 Compatibility was verified with the client DSH uses
 (`@modelcontextprotocol/client` 2.2.0, `versionNegotiation: auto`): the
-handshake succeeded, `tools/list` returned 20 tools and `list_projects` read
+handshake succeeded, `tools/list` returned 21 tools and `list_projects` read
 real Redmine data.
 
 The typed `#[tool_router]`/`schemars` layer of `rmcp` is not used: the explicit
@@ -99,7 +99,7 @@ Windows; see the release workflow.
   existing `rmcp` server rather than replacing the transport.
 - The team needs one shared Redmine MCP endpoint → add Streamable HTTP with
   per-user authentication and rate limiting; Docker/Kubernetes then make sense.
-- The tool surface grows past roughly 15–20 tools → group or consolidate actions
+- The tool surface grows past roughly 20–25 tools → group or consolidate actions
   and invest in descriptions/selection tests, rather than exposing every
   endpoint.
 - Redmine adds a native full-text issue filter → prefer it over `/search.json`

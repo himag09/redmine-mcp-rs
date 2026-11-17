@@ -258,10 +258,8 @@ impl RedmineClient {
 
     // --- Time entries ---------------------------------------------------
 
-    pub async fn list_time_entries(&self, issue_id: u64, limit: u32, offset: u32) -> Result<Value> {
-        let mut query = vec![("issue_id".to_string(), issue_id.to_string())];
-        query.extend(page_query(limit, offset));
-        self.get("time_entries.json", &query).await
+    pub async fn list_time_entries(&self, query: &[(String, String)]) -> Result<Value> {
+        self.get("time_entries.json", query).await
     }
 
     pub async fn create_time_entry(&self, time_entry: &Value) -> Result<Value> {

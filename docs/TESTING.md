@@ -22,11 +22,11 @@ cargo test --locked -- --nocapture        # show stdout from failing tests
 
 | Layer | Location | Tests | Network |
 | --- | --- | ---: | --- |
-| Unit | `src/**` `#[cfg(test)]` modules | 50 | none |
+| Unit | `src/**` `#[cfg(test)]` modules | 52 | none |
 | CLI | `src/main.rs` tests | 1 | none |
-| Integration | `tests/api_tools.rs` | 37 | localhost mock only |
+| Integration | `tests/api_tools.rs` | 41 | localhost mock only |
 | End-to-end | `tests/stdio.rs` | 14 | localhost mock only |
-| **Total** | | **102** | |
+| **Total** | | **108** | |
 
 Counts are from the current suite; use `cargo test --locked` to see the exact
 numbers on your checkout.
@@ -82,6 +82,8 @@ numbers on your checkout.
   self-relation rejection, POST payload and DELETE path.
 - `list_project_members`: project memberships, roles and pagination; works
   without the admin-only `/users.json`.
+- `get_time_summary`: `from`/`to` validation, `group_by=day|issue`, internal
+  pagination and totals; `list_time_entries` global filters and compact rows.
 - `create_issue`: default project, omitted fields, custom fields, watcher
   deduplication, date/range validation.
 - `update_issue`: partial payloads, empty description/date handling, notes,
@@ -94,6 +96,8 @@ numbers on your checkout.
 - Relations: `POST /issues/{id}/relations.json` and
   `DELETE /relations/{id}.json`; project memberships under
   `/projects/{id}/memberships.json`.
+- Time summaries: date-range filters and internal paging via
+  `GET /time_entries.json?from=...&to=...&limit=100&offset=...`.
 - Page size bounds (1–100, default 25) and exact-subject filtering.
 - Read-only mode: tools hidden from `tools/list` and rejected at call time.
 - Tool schemas: every spec has a name, description, object input schema and

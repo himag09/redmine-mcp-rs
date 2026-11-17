@@ -9,7 +9,7 @@
 //!   `subject_contains`; unknown filter names such as `query` are not exposed
 //!   because Redmine answers HTTP 500 for them.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use base64::Engine as _;
 use serde::de::DeserializeOwned;
@@ -26,6 +26,8 @@ const DEFAULT_PAGE_SIZE: u32 = 25;
 const MAX_PAGE_SIZE: u32 = 100;
 const SUBJECT_MAX_CHARS: usize = 255;
 const FILENAME_MAX_CHARS: usize = 255;
+const SUMMARY_PAGE_SIZE: u32 = 100;
+const MAX_SUMMARY_ENTRIES: usize = 10_000;
 const RELATION_TYPES: [&str; 11] = [
     "relates",
     "duplicates",
@@ -97,6 +99,7 @@ pub fn is_known(name: &str) -> bool {
             | "add_issue_relation"
             | "delete_issue_relation"
             | "list_project_members"
+            | "get_time_summary"
     )
 }
 
@@ -109,6 +112,7 @@ pub fn specs(read_only: bool) -> Vec<Value> {
         list_trackers_statuses_spec(),
         read_issue_spec(),
         list_time_entries_spec(),
+        get_time_summary_spec(),
         add_issue_note_spec(),
         transition_issue_spec(),
         find_issues_spec(),
@@ -150,6 +154,7 @@ pub async fn call(app: &App, name: &str, args: Value) -> Result<Value> {
         "list_trackers_statuses" => list_trackers_statuses(app, args).await,
         "read_issue" => read_issue(app, args).await,
         "list_time_entries" => list_time_entries(app, args).await,
+        "get_time_summary" => get_time_summary(app, args).await,
         "add_issue_note" => add_issue_note(app, args).await,
         "transition_issue" => transition_issue(app, args).await,
         "find_issues" => find_issues(app, args).await,
@@ -215,12 +220,25 @@ async fn read_issue(app: &App, args: Value) -> Result<Value> {
 
 async fn list_time_entries(app: &App, args: Value) -> Result<Value> {
     let args: ListTimeEntriesArgs = parse_args("list_time_entries", args)?;
-    ensure_positive("issue_id", args.issue_id)?;
-    let limit = validate_limit(args.limit)?;
-    let offset = args.offset.unwrap_or(0);
-    app.client
-        .list_time_entries(args.issue_id, limit, offset)
-        .await
+    let query = build_time_entry_query(&args)?;
+    let response = app.client.list_time_entries(&query).await?;
+    Ok(compact_time_entries(response))
+}
+
+async fn get_time_summary(app: &App, args: Value) -> Result<Value> {
+    let args: TimeSummaryArgs = parse_args("get_time_summary", args)?;
+    let group_by = validate_group_by(args.group_by.as_deref().unwrap_or("day"))?;
+    let mut query = Vec::new();
+    push_time_filters(
+        &mut query,
+        Some(&args.from),
+        Some(&args.to),
+        args.user_id,
+        args.project_id,
+        args.activity_id,
+    )?;
+    let entries = fetch_all_time_entries(app, &query).await?;
+    summarize_time_entries(&args.from, &args.to, &group_by, &entries)
 }
 
 async fn log_time(app: &App, args: Value) -> Result<Value> {
@@ -530,9 +548,25 @@ struct TransitionArgs {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ListTimeEntriesArgs {
-    issue_id: u64,
+    issue_id: Option<u64>,
+    from: Option<String>,
+    to: Option<String>,
+    user_id: Option<u64>,
+    project_id: Option<u64>,
+    activity_id: Option<u64>,
     limit: Option<u32>,
     offset: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TimeSummaryArgs {
+    from: String,
+    to: String,
+    group_by: Option<String>,
+    user_id: Option<u64>,
+    project_id: Option<u64>,
+    activity_id: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -855,6 +889,201 @@ fn build_issue_relation(args: &AddIssueRelationArgs) -> Result<Value> {
         relation.insert("delay".to_string(), json!(delay));
     }
     Ok(Value::Object(relation))
+}
+
+fn build_time_entry_query(args: &ListTimeEntriesArgs) -> Result<Vec<(String, String)>> {
+    let mut query = Vec::new();
+    if let Some(issue_id) = args.issue_id {
+        ensure_positive("issue_id", issue_id)?;
+        query.push(("issue_id".to_string(), issue_id.to_string()));
+    }
+    push_time_filters(
+        &mut query,
+        args.from.as_deref(),
+        args.to.as_deref(),
+        args.user_id,
+        args.project_id,
+        args.activity_id,
+    )?;
+    query.push(("limit".to_string(), validate_limit(args.limit)?.to_string()));
+    query.push(("offset".to_string(), args.offset.unwrap_or(0).to_string()));
+    Ok(query)
+}
+
+fn push_time_filters(
+    query: &mut Vec<(String, String)>,
+    from: Option<&str>,
+    to: Option<&str>,
+    user_id: Option<u64>,
+    project_id: Option<u64>,
+    activity_id: Option<u64>,
+) -> Result<()> {
+    if let Some(date) = from {
+        validate_date("from", date)?;
+        query.push(("from".to_string(), date.to_string()));
+    }
+    if let Some(date) = to {
+        validate_date("to", date)?;
+        query.push(("to".to_string(), date.to_string()));
+    }
+    if let (Some(from), Some(to)) = (from, to)
+        && from > to
+    {
+        return Err(Error::validation("from must be on or before to"));
+    }
+    if let Some(user_id) = user_id {
+        ensure_positive("user_id", user_id)?;
+        query.push(("user_id".to_string(), user_id.to_string()));
+    }
+    if let Some(project_id) = project_id {
+        ensure_positive("project_id", project_id)?;
+        query.push(("project_id".to_string(), project_id.to_string()));
+    }
+    if let Some(activity_id) = activity_id {
+        ensure_positive("activity_id", activity_id)?;
+        query.push(("activity_id".to_string(), activity_id.to_string()));
+    }
+    Ok(())
+}
+
+fn validate_group_by(value: &str) -> Result<String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "day" | "issue" => Ok(value.trim().to_ascii_lowercase()),
+        other => Err(Error::validation(format!(
+            "group_by must be day or issue (got {other:?})"
+        ))),
+    }
+}
+
+fn compact_time_entries(value: Value) -> Value {
+    let entries = value
+        .get("time_entries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let compact: Vec<Value> = entries
+        .iter()
+        .map(|entry| {
+            let activity = entry
+                .get("activity")
+                .map(|activity| {
+                    json!({
+                        "id": activity.get("id"),
+                        "name": activity.get("name"),
+                    })
+                })
+                .unwrap_or(Value::Null);
+            json!({
+                "id": entry.get("id").cloned().unwrap_or(Value::Null),
+                "issue_id": entry.pointer("/issue/id").cloned().unwrap_or(Value::Null),
+                "spent_on": entry.get("spent_on").cloned().unwrap_or(Value::Null),
+                "hours": entry.get("hours").cloned().unwrap_or(Value::Null),
+                "activity": activity,
+                "comments": entry.get("comments").cloned().unwrap_or(Value::Null),
+            })
+        })
+        .collect();
+    json!({
+        "time_entries": compact,
+        "total_count": value.get("total_count").cloned().unwrap_or_else(|| json!(compact.len())),
+        "offset": value.get("offset").cloned().unwrap_or_else(|| json!(0)),
+        "limit": value.get("limit").cloned().unwrap_or_else(|| json!(compact.len())),
+    })
+}
+
+async fn fetch_all_time_entries(app: &App, base: &[(String, String)]) -> Result<Vec<Value>> {
+    let mut entries = Vec::new();
+    let mut offset = 0u32;
+    loop {
+        let mut query = base.to_vec();
+        query.push(("limit".to_string(), SUMMARY_PAGE_SIZE.to_string()));
+        query.push(("offset".to_string(), offset.to_string()));
+        let page = app.client.list_time_entries(&query).await?;
+        let page_entries = page
+            .get("time_entries")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let total = page.get("total_count").and_then(Value::as_u64);
+        if let Some(total) = total
+            && total > MAX_SUMMARY_ENTRIES as u64
+        {
+            return Err(Error::validation(format!(
+                "time summary would include {total} entries; narrow the date range or filters (maximum {MAX_SUMMARY_ENTRIES})"
+            )));
+        }
+        let page_len = page_entries.len();
+        entries.extend(page_entries);
+        if entries.len() > MAX_SUMMARY_ENTRIES {
+            return Err(Error::validation(format!(
+                "time summary would include more than {MAX_SUMMARY_ENTRIES} entries; narrow the date range or filters"
+            )));
+        }
+        if page_len == 0 || total.is_none_or(|total| entries.len() as u64 >= total) {
+            break;
+        }
+        offset += page_len as u32;
+    }
+    Ok(entries)
+}
+
+fn summarize_time_entries(
+    from: &str,
+    to: &str,
+    group_by: &str,
+    entries: &[Value],
+) -> Result<Value> {
+    let mut total = 0.0;
+    let mut days: BTreeMap<String, (f64, u64)> = BTreeMap::new();
+    let mut issues: BTreeMap<Option<u64>, (f64, u64)> = BTreeMap::new();
+
+    for entry in entries {
+        let hours = entry.get("hours").and_then(Value::as_f64).unwrap_or(0.0);
+        total += hours;
+        if group_by == "day" {
+            let day = entry
+                .get("spent_on")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let slot = days.entry(day).or_insert((0.0, 0));
+            slot.0 += hours;
+            slot.1 += 1;
+        } else {
+            let issue_id = entry.pointer("/issue/id").and_then(Value::as_u64);
+            let slot = issues.entry(issue_id).or_insert((0.0, 0));
+            slot.0 += hours;
+            slot.1 += 1;
+        }
+    }
+
+    let rows: Vec<Value> = if group_by == "day" {
+        days.into_iter()
+            .map(|(spent_on, (hours, entries))| {
+                json!({ "spent_on": spent_on, "hours": hours, "entries": entries })
+            })
+            .collect()
+    } else {
+        issues
+            .into_iter()
+            .map(|(issue_id, (hours, entries))| {
+                json!({ "issue_id": issue_id, "hours": hours, "entries": entries })
+            })
+            .collect()
+    };
+
+    let total_hours = serde_json::Number::from_f64(total)
+        .map(Value::Number)
+        .unwrap_or_else(|| json!(0.0));
+
+    Ok(json!({
+        "from": from,
+        "to": to,
+        "group_by": group_by,
+        "total_hours": total_hours,
+        "total_entries": entries.len(),
+        "rows": rows,
+    }))
 }
 
 fn build_issue_query(args: &FindIssuesArgs) -> Result<Vec<(String, String)>> {
@@ -1632,15 +1861,46 @@ fn list_time_entries_spec() -> Value {
     json!({
         "name": "list_time_entries",
         "title": "List time entries",
-        "description": "List time entries logged on an issue, including hours, spent_on, activity, user and comments. Returns {time_entries, total_count, offset, limit}.",
+        "description": "List time entries globally or filtered by issue, project, user, activity or date range. Returns compact rows: id, issue_id, spent_on, hours, activity and comments, plus total_count/offset/limit.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "issue_id": id_prop("Issue id."),
+                "issue_id": id_prop("Filter by issue id."),
+                "project_id": id_prop("Filter by project id."),
+                "user_id": id_prop("Filter by user id."),
+                "activity_id": id_prop("Filter by time entry activity id."),
+                "from": date_prop("Only entries on or after this date (YYYY-MM-DD)."),
+                "to": date_prop("Only entries on or before this date (YYYY-MM-DD)."),
                 "limit": limit_prop(),
                 "offset": offset_prop()
             },
-            "required": ["issue_id"],
+            "additionalProperties": false
+        },
+        "annotations": read_annotations()
+    })
+}
+
+fn get_time_summary_spec() -> Value {
+    json!({
+        "name": "get_time_summary",
+        "title": "Summarize time entries",
+        "description": "Summarize all time entries in a date range in one call. Groups by day or issue and returns total_hours, total_entries and compact rows. Use this instead of paginating list_time_entries for \"horas de hoy\" or weekly/hour reports.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "from": date_prop("Start date (YYYY-MM-DD)."),
+                "to": date_prop("End date (YYYY-MM-DD)."),
+                "group_by": {
+                    "type": "string",
+                    "enum": ["day", "issue"],
+                    "default": "day",
+                    "description": "Group rows by day or issue."
+                },
+                "project_id": id_prop("Filter by project id."),
+                "user_id": id_prop("Filter by user id."),
+                "activity_id": id_prop("Filter by time entry activity id.")
+            },
+            "required": ["from", "to"],
             "additionalProperties": false
         },
         "annotations": read_annotations()
@@ -1994,6 +2254,10 @@ mod tests {
         serde_json::from_value(value).expect("valid relation args")
     }
 
+    fn parse_list_time(value: Value) -> ListTimeEntriesArgs {
+        serde_json::from_value(value).expect("valid list time args")
+    }
+
     #[test]
     fn validates_dates() {
         assert!(is_valid_date("2024-02-29"));
@@ -2232,8 +2496,8 @@ mod tests {
     fn read_only_mode_hides_write_tools() {
         let all = specs(false);
         let reads = specs(true);
-        assert_eq!(all.len(), 20);
-        assert_eq!(reads.len(), 10);
+        assert_eq!(all.len(), 21);
+        assert_eq!(reads.len(), 11);
         assert!(
             reads
                 .iter()
@@ -2366,6 +2630,45 @@ mod tests {
             let args = parse_relation(args);
             assert!(build_issue_relation(&args).is_err());
         }
+    }
+
+    #[test]
+    fn builds_time_entry_query_with_optional_filters() {
+        let args = parse_list_time(json!({
+            "from": "2026-11-01",
+            "to": "2026-11-02",
+            "user_id": 35,
+            "project_id": 11,
+            "activity_id": 9,
+            "limit": 10,
+            "offset": 20
+        }));
+        let query = build_time_entry_query(&args).expect("valid query");
+        let get = |key: &str| {
+            query
+                .iter()
+                .find(|(name, _)| name == key)
+                .map(|(_, value)| value.as_str())
+        };
+        assert_eq!(get("from"), Some("2026-11-01"));
+        assert_eq!(get("to"), Some("2026-11-02"));
+        assert_eq!(get("user_id"), Some("35"));
+        assert_eq!(get("project_id"), Some("11"));
+        assert_eq!(get("activity_id"), Some("9"));
+        assert_eq!(get("limit"), Some("10"));
+        assert_eq!(get("offset"), Some("20"));
+        assert!(get("issue_id").is_none());
+    }
+
+    #[test]
+    fn rejects_invalid_time_ranges_before_http() {
+        let args = parse_list_time(json!({ "from": "2026-11-03", "to": "2026-11-02" }));
+        assert!(build_time_entry_query(&args).is_err());
+
+        let args = parse_list_time(json!({ "from": "2025-02-29" }));
+        assert!(build_time_entry_query(&args).is_err());
+
+        assert!(validate_group_by("month").is_err());
     }
 
     #[test]

@@ -861,7 +861,7 @@ async fn list_time_entries_reads_hours_and_comments() {
         |request| match (request.method.as_str(), request.path.as_str()) {
             ("GET", "/time_entries.json") => MockResponse::json(
                 200,
-                r#"{"time_entries":[{"id":7,"hours":1.5,"comments":"Revisión","spent_on":"2026-11-02","activity":{"id":9,"name":"Development"}}],"total_count":1,"offset":5,"limit":10}"#,
+                r#"{"time_entries":[{"id":7,"issue":{"id":42},"hours":1.5,"comments":"Revisión","spent_on":"2026-11-02","user":{"id":35,"name":"Tester"},"project":{"id":11,"name":"P"},"created_on":"2026-11-02T10:00:00Z","activity":{"id":9,"name":"Development"}}],"total_count":1,"offset":5,"limit":10}"#,
             ),
             _ => MockResponse::json(404, "{}"),
         },
@@ -878,6 +878,13 @@ async fn list_time_entries_reads_hours_and_comments() {
     assert_eq!(result["total_count"], json!(1));
     assert_eq!(result["time_entries"][0]["hours"], json!(1.5));
     assert_eq!(result["time_entries"][0]["comments"], json!("Revisión"));
+    assert_eq!(result["time_entries"][0]["issue_id"], json!(42));
+    assert_eq!(
+        result["time_entries"][0]["activity"]["name"],
+        json!("Development")
+    );
+    assert!(result["time_entries"][0].get("user").is_none());
+    assert!(result["time_entries"][0].get("created_on").is_none());
 
     let request = mock.last_request();
     assert_eq!(request.method, "GET");
@@ -1059,6 +1066,124 @@ async fn invalid_relations_fail_before_http() {
         json!({ "issue_id": 1, "issue_to_id": 2, "relation_type": "relates", "delay": 1 }),
     ] {
         assert!(tools::call(&app, "add_issue_relation", args).await.is_err());
+    }
+    assert_eq!(mock.request_count(), 0);
+}
+
+#[tokio::test]
+async fn list_time_entries_supports_global_filters_and_compacts_rows() {
+    let mock = MockRedmine::new(|request| match request.method.as_str() {
+        "GET" => MockResponse::json(
+            200,
+            r#"{"time_entries":[{"id":8,"issue":{"id":42},"hours":2,"comments":"ok","spent_on":"2026-11-02","user":{"id":35},"project":{"id":11},"created_on":"2026-11-02T10:00:00Z","activity":{"id":9,"name":"Desarrollo"}}],"total_count":1,"offset":0,"limit":10}"#,
+        ),
+        _ => MockResponse::json(404, "{}"),
+    });
+    let app = test_app(&mock, false);
+
+    let result = call(
+        &app,
+        "list_time_entries",
+        json!({
+            "from": "2026-11-01",
+            "to": "2026-11-02",
+            "user_id": 35,
+            "project_id": 11,
+            "activity_id": 9,
+            "limit": 10,
+            "offset": 0
+        }),
+    )
+    .await;
+
+    assert_eq!(result["time_entries"][0]["id"], json!(8));
+    assert_eq!(result["time_entries"][0]["issue_id"], json!(42));
+    assert!(result["time_entries"][0].get("user").is_none());
+    let request = mock.last_request();
+    assert_eq!(request.query_value("from").as_deref(), Some("2026-11-01"));
+    assert_eq!(request.query_value("to").as_deref(), Some("2026-11-02"));
+    assert_eq!(request.query_value("user_id").as_deref(), Some("35"));
+    assert_eq!(request.query_value("project_id").as_deref(), Some("11"));
+    assert_eq!(request.query_value("activity_id").as_deref(), Some("9"));
+}
+
+#[tokio::test]
+async fn get_time_summary_groups_by_day() {
+    let mock = MockRedmine::new(|request| match request.method.as_str() {
+        "GET" => MockResponse::json(
+            200,
+            r#"{"time_entries":[{"id":1,"issue":{"id":1},"hours":2,"spent_on":"2026-11-02","activity":{"id":9,"name":"Dev"}},{"id":2,"issue":{"id":2},"hours":3,"spent_on":"2026-11-02","activity":{"id":9,"name":"Dev"}},{"id":3,"issue":{"id":1},"hours":1,"spent_on":"2026-11-01","activity":{"id":9,"name":"Dev"}}],"total_count":3,"offset":0,"limit":100}"#,
+        ),
+        _ => MockResponse::json(404, "{}"),
+    });
+    let app = test_app(&mock, false);
+
+    let result = call(
+        &app,
+        "get_time_summary",
+        json!({ "from": "2026-11-01", "to": "2026-11-02", "group_by": "day" }),
+    )
+    .await;
+
+    assert_eq!(result["total_hours"], json!(6.0));
+    assert_eq!(result["total_entries"], json!(3));
+    assert_eq!(result["rows"][0]["spent_on"], json!("2026-11-01"));
+    assert_eq!(result["rows"][0]["hours"], json!(1.0));
+    assert_eq!(result["rows"][1]["spent_on"], json!("2026-11-02"));
+    assert_eq!(result["rows"][1]["hours"], json!(5.0));
+
+    let request = mock.last_request();
+    assert_eq!(request.query_value("from").as_deref(), Some("2026-11-01"));
+    assert_eq!(request.query_value("to").as_deref(), Some("2026-11-02"));
+    assert_eq!(request.query_value("limit").as_deref(), Some("100"));
+}
+
+#[tokio::test]
+async fn get_time_summary_groups_by_issue_and_paginates() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let calls_for_router = Arc::clone(&calls);
+    let mock = MockRedmine::new(move |_| {
+        let attempt = calls_for_router.fetch_add(1, Ordering::SeqCst);
+        if attempt == 0 {
+            MockResponse::json(
+                200,
+                r#"{"time_entries":[{"id":1,"issue":{"id":42},"hours":6,"spent_on":"2026-11-01","activity":{"id":9,"name":"Dev"}}],"total_count":2,"offset":0,"limit":100}"#,
+            )
+        } else {
+            MockResponse::json(
+                200,
+                r#"{"time_entries":[{"id":2,"issue":{"id":42},"hours":4,"spent_on":"2026-11-02","activity":{"id":9,"name":"Dev"}}],"total_count":2,"offset":1,"limit":100}"#,
+            )
+        }
+    });
+    let app = test_app(&mock, false);
+
+    let result = call(
+        &app,
+        "get_time_summary",
+        json!({ "from": "2026-11-01", "to": "2026-11-02", "group_by": "issue" }),
+    )
+    .await;
+
+    assert_eq!(result["total_hours"], json!(10.0));
+    assert_eq!(result["total_entries"], json!(2));
+    assert_eq!(result["rows"][0]["issue_id"], json!(42));
+    assert_eq!(result["rows"][0]["hours"], json!(10.0));
+    assert_eq!(mock.request_count(), 2);
+}
+
+#[tokio::test]
+async fn get_time_summary_rejects_invalid_arguments_before_http() {
+    let mock =
+        MockRedmine::new(|_| MockResponse::json(200, r#"{"time_entries":[],"total_count":0}"#));
+    let app = test_app(&mock, false);
+
+    for args in [
+        json!({ "from": "2026-11-03", "to": "2026-11-02" }),
+        json!({ "from": "2025-02-29", "to": "2026-11-02" }),
+        json!({ "from": "2026-11-01", "to": "2026-11-02", "group_by": "month" }),
+    ] {
+        assert!(tools::call(&app, "get_time_summary", args).await.is_err());
     }
     assert_eq!(mock.request_count(), 0);
 }

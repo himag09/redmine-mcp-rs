@@ -57,9 +57,9 @@ Rust, Cargo and a compiler are not required for these binaries.
 For example, on Apple Silicon macOS:
 
 ```bash
-shasum -a 256 -c redmine-mcp-rs-v1.3.0-aarch64-apple-darwin.sha256
-tar -xzf redmine-mcp-rs-v1.3.0-aarch64-apple-darwin.tar.gz
-./redmine-mcp-rs-v1.3.0-aarch64-apple-darwin/redmine-mcp-rs --version
+shasum -a 256 -c redmine-mcp-rs-v1.4.0-aarch64-apple-darwin.sha256
+tar -xzf redmine-mcp-rs-v1.4.0-aarch64-apple-darwin.tar.gz
+./redmine-mcp-rs-v1.4.0-aarch64-apple-darwin/redmine-mcp-rs --version
 ```
 
 macOS artifacts are not code-signed; Gatekeeper may require right-click → Open or
@@ -165,7 +165,8 @@ ten write tools from `tools/list` and rejects direct calls to them.
 | Tool | Type | Purpose |
 | --- | --- | --- |
 | `read_issue` | read | Read one issue, optionally with journals, relations, attachments, children, changesets or allowed statuses. |
-| `list_time_entries` | read | List time entries for an issue: hours, date, activity, user and comments. |
+| `list_time_entries` | read | List compact time entries with optional issue, project, user, activity and date filters. |
+| `get_time_summary` | read | Summarize time entries for a date range by day or issue in one call. |
 | `find_issues` | read | Search issues with Redmine filters and pagination. |
 | `search` | read | Global full-text search across issues, wiki pages, news, documents, changesets, messages and projects. |
 | `list_projects` | read | List projects with pagination. |
@@ -217,8 +218,12 @@ can apply their own approval policies.
   `time_entry_activities` is the list of activity ids accepted by `log_time`.
 - **Time entries** are separate from `estimated_hours`. `log_time` requires
   `activity_id`, logs more than 0 and at most 24 hours, and accepts optional
-  `spent_on` and `comments`. `list_time_entries` returns the logged hours, date,
-  activity, user and comments for an issue. `update_time_entry` changes only the
+  `spent_on` and `comments`. `list_time_entries` works globally or filtered by
+  `issue_id`, `project_id`, `user_id`, `activity_id`, `from` and `to`, and returns
+  compact rows (`id`, `issue_id`, `spent_on`, `hours`, `activity`, `comments`).
+  `get_time_summary` pages internally and returns `total_hours`, `total_entries`
+  and rows grouped by `day` or `issue`; use it for "horas de hoy" or weekly
+  reports instead of paginating manually. `update_time_entry` changes only the
   fields you send and `delete_time_entry` removes an entry permanently.
 - **Parent tasks and relations.** `create_issue` and `update_issue` accept
   `parent_issue_id`; `read_issue` with `include: ["children"]` reads subtasks.

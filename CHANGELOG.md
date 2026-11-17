@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## 1.4.0 - 2026-11-17
+
+### Added
+
+- `get_time_summary` for date-range time reports grouped by day or issue, with
+  internal pagination and compact totals.
+- `list_time_entries` now accepts optional `issue_id`, `project_id`, `user_id`,
+  `activity_id`, `from` and `to`, and returns only `id`, `issue_id`, `spent_on`,
+  `hours`, `activity` and `comments` per row.
+- Tests now cover 108 cases across unit, mock-HTTP and stdio layers.
+
 ## 1.3.0 - 2026-11-02
 
 ### Added
