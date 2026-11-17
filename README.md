@@ -57,9 +57,9 @@ Rust, Cargo and a compiler are not required for these binaries.
 For example, on Apple Silicon macOS:
 
 ```bash
-shasum -a 256 -c redmine-mcp-rs-v1.4.1-aarch64-apple-darwin.sha256
-tar -xzf redmine-mcp-rs-v1.4.1-aarch64-apple-darwin.tar.gz
-./redmine-mcp-rs-v1.4.1-aarch64-apple-darwin/redmine-mcp-rs --version
+shasum -a 256 -c redmine-mcp-rs-v1.4.2-aarch64-apple-darwin.sha256
+tar -xzf redmine-mcp-rs-v1.4.2-aarch64-apple-darwin.tar.gz
+./redmine-mcp-rs-v1.4.2-aarch64-apple-darwin/redmine-mcp-rs --version
 ```
 
 macOS artifacts are not code-signed; Gatekeeper may require right-click → Open or

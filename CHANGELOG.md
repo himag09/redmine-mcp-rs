@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## 1.4.2 - 2026-11-17
+
+### Fixed
+
+- Filter `list_time_entries` and `get_time_summary` by exact `spent_on` values
+  after fetching. Redmine's `from`/`to` date filter on this instance returned
+  entries from the following day, which made "today" reports wrong.
+- Tests now cover 109 cases.
+
 ## 1.4.1 - 2026-11-17
 
 ### Security

@@ -22,11 +22,11 @@ cargo test --locked -- --nocapture        # show stdout from failing tests
 
 | Layer | Location | Tests | Network |
 | --- | --- | ---: | --- |
-| Unit | `src/**` `#[cfg(test)]` modules | 52 | none |
+| Unit | `src/**` `#[cfg(test)]` modules | 53 | none |
 | CLI | `src/main.rs` tests | 1 | none |
 | Integration | `tests/api_tools.rs` | 41 | localhost mock only |
 | End-to-end | `tests/stdio.rs` | 14 | localhost mock only |
-| **Total** | | **108** | |
+| **Total** | | **109** | |
 
 Counts are from the current suite; use `cargo test --locked` to see the exact
 numbers on your checkout.
@@ -82,8 +82,9 @@ numbers on your checkout.
   self-relation rejection, POST payload and DELETE path.
 - `list_project_members`: project memberships, roles and pagination; works
   without the admin-only `/users.json`.
-- `get_time_summary`: `from`/`to` validation, `group_by=day|issue`, internal
-  pagination and totals; `list_time_entries` global filters and compact rows.
+- `get_time_summary`: `from`/`to` validation, exact `spent_on` filtering after
+  fetch, `group_by=day|issue`, internal pagination and totals;
+  `list_time_entries` global filters and compact rows.
 - `create_issue`: default project, omitted fields, custom fields, watcher
   deduplication, date/range validation.
 - `update_issue`: partial payloads, empty description/date handling, notes,

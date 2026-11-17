@@ -220,6 +220,33 @@ async fn read_issue(app: &App, args: Value) -> Result<Value> {
 
 async fn list_time_entries(app: &App, args: Value) -> Result<Value> {
     let args: ListTimeEntriesArgs = parse_args("list_time_entries", args)?;
+    validate_time_range(args.from.as_deref(), args.to.as_deref())?;
+    let limit = validate_limit(args.limit)?;
+    let offset = args.offset.unwrap_or(0);
+
+    if args.from.is_some() || args.to.is_some() {
+        let mut query = Vec::new();
+        if let Some(issue_id) = args.issue_id {
+            ensure_positive("issue_id", issue_id)?;
+            query.push(("issue_id".to_string(), issue_id.to_string()));
+        }
+        push_time_id_filters(&mut query, args.user_id, args.project_id, args.activity_id)?;
+        let entries =
+            fetch_all_time_entries(app, &query, args.from.as_deref(), args.to.as_deref()).await?;
+        let total = entries.len();
+        let page: Vec<Value> = entries
+            .into_iter()
+            .skip(offset as usize)
+            .take(limit as usize)
+            .collect();
+        return Ok(compact_time_entry_rows(
+            &page,
+            total,
+            offset as usize,
+            limit as usize,
+        ));
+    }
+
     let query = build_time_entry_query(&args)?;
     let response = app.client.list_time_entries(&query).await?;
     Ok(compact_time_entries(response))
@@ -228,16 +255,10 @@ async fn list_time_entries(app: &App, args: Value) -> Result<Value> {
 async fn get_time_summary(app: &App, args: Value) -> Result<Value> {
     let args: TimeSummaryArgs = parse_args("get_time_summary", args)?;
     let group_by = validate_group_by(args.group_by.as_deref().unwrap_or("day"))?;
+    validate_time_range(Some(&args.from), Some(&args.to))?;
     let mut query = Vec::new();
-    push_time_filters(
-        &mut query,
-        Some(&args.from),
-        Some(&args.to),
-        args.user_id,
-        args.project_id,
-        args.activity_id,
-    )?;
-    let entries = fetch_all_time_entries(app, &query).await?;
+    push_time_id_filters(&mut query, args.user_id, args.project_id, args.activity_id)?;
+    let entries = fetch_all_time_entries(app, &query, Some(&args.from), Some(&args.to)).await?;
     summarize_time_entries(&args.from, &args.to, &group_by, &entries)
 }
 
@@ -897,40 +918,33 @@ fn build_time_entry_query(args: &ListTimeEntriesArgs) -> Result<Vec<(String, Str
         ensure_positive("issue_id", issue_id)?;
         query.push(("issue_id".to_string(), issue_id.to_string()));
     }
-    push_time_filters(
-        &mut query,
-        args.from.as_deref(),
-        args.to.as_deref(),
-        args.user_id,
-        args.project_id,
-        args.activity_id,
-    )?;
+    push_time_id_filters(&mut query, args.user_id, args.project_id, args.activity_id)?;
     query.push(("limit".to_string(), validate_limit(args.limit)?.to_string()));
     query.push(("offset".to_string(), args.offset.unwrap_or(0).to_string()));
     Ok(query)
 }
 
-fn push_time_filters(
-    query: &mut Vec<(String, String)>,
-    from: Option<&str>,
-    to: Option<&str>,
-    user_id: Option<u64>,
-    project_id: Option<u64>,
-    activity_id: Option<u64>,
-) -> Result<()> {
+fn validate_time_range(from: Option<&str>, to: Option<&str>) -> Result<()> {
     if let Some(date) = from {
         validate_date("from", date)?;
-        query.push(("from".to_string(), date.to_string()));
     }
     if let Some(date) = to {
         validate_date("to", date)?;
-        query.push(("to".to_string(), date.to_string()));
     }
     if let (Some(from), Some(to)) = (from, to)
         && from > to
     {
         return Err(Error::validation("from must be on or before to"));
     }
+    Ok(())
+}
+
+fn push_time_id_filters(
+    query: &mut Vec<(String, String)>,
+    user_id: Option<u64>,
+    project_id: Option<u64>,
+    activity_id: Option<u64>,
+) -> Result<()> {
     if let Some(user_id) = user_id {
         ensure_positive("user_id", user_id)?;
         query.push(("user_id".to_string(), user_id.to_string()));
@@ -946,6 +960,11 @@ fn push_time_filters(
     Ok(())
 }
 
+fn entry_in_time_range(entry: &Value, from: Option<&str>, to: Option<&str>) -> bool {
+    let spent_on = entry.get("spent_on").and_then(Value::as_str).unwrap_or("");
+    from.is_none_or(|from| spent_on >= from) && to.is_none_or(|to| spent_on <= to)
+}
+
 fn validate_group_by(value: &str) -> Result<String> {
     match value.trim().to_ascii_lowercase().as_str() {
         "day" | "issue" => Ok(value.trim().to_ascii_lowercase()),
@@ -955,44 +974,67 @@ fn validate_group_by(value: &str) -> Result<String> {
     }
 }
 
+fn compact_time_entry_rows(
+    entries: &[Value],
+    total_count: usize,
+    offset: usize,
+    limit: usize,
+) -> Value {
+    let compact: Vec<Value> = entries.iter().map(compact_time_entry).collect();
+    json!({
+        "time_entries": compact,
+        "total_count": total_count,
+        "offset": offset,
+        "limit": limit,
+    })
+}
+
+fn compact_time_entry(entry: &Value) -> Value {
+    let activity = entry
+        .get("activity")
+        .map(|activity| {
+            json!({
+                "id": activity.get("id"),
+                "name": activity.get("name"),
+            })
+        })
+        .unwrap_or(Value::Null);
+    json!({
+        "id": entry.get("id").cloned().unwrap_or(Value::Null),
+        "issue_id": entry.pointer("/issue/id").cloned().unwrap_or(Value::Null),
+        "spent_on": entry.get("spent_on").cloned().unwrap_or(Value::Null),
+        "hours": entry.get("hours").cloned().unwrap_or(Value::Null),
+        "activity": activity,
+        "comments": entry.get("comments").cloned().unwrap_or(Value::Null),
+    })
+}
+
 fn compact_time_entries(value: Value) -> Value {
     let entries = value
         .get("time_entries")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let compact: Vec<Value> = entries
-        .iter()
-        .map(|entry| {
-            let activity = entry
-                .get("activity")
-                .map(|activity| {
-                    json!({
-                        "id": activity.get("id"),
-                        "name": activity.get("name"),
-                    })
-                })
-                .unwrap_or(Value::Null);
-            json!({
-                "id": entry.get("id").cloned().unwrap_or(Value::Null),
-                "issue_id": entry.pointer("/issue/id").cloned().unwrap_or(Value::Null),
-                "spent_on": entry.get("spent_on").cloned().unwrap_or(Value::Null),
-                "hours": entry.get("hours").cloned().unwrap_or(Value::Null),
-                "activity": activity,
-                "comments": entry.get("comments").cloned().unwrap_or(Value::Null),
-            })
-        })
-        .collect();
-    json!({
-        "time_entries": compact,
-        "total_count": value.get("total_count").cloned().unwrap_or_else(|| json!(compact.len())),
-        "offset": value.get("offset").cloned().unwrap_or_else(|| json!(0)),
-        "limit": value.get("limit").cloned().unwrap_or_else(|| json!(compact.len())),
-    })
+    let total = value
+        .get("total_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(entries.len() as u64) as usize;
+    let offset = value.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize;
+    let limit = value
+        .get("limit")
+        .and_then(Value::as_u64)
+        .unwrap_or(entries.len() as u64) as usize;
+    compact_time_entry_rows(&entries, total, offset, limit)
 }
 
-async fn fetch_all_time_entries(app: &App, base: &[(String, String)]) -> Result<Vec<Value>> {
+async fn fetch_all_time_entries(
+    app: &App,
+    base: &[(String, String)],
+    from: Option<&str>,
+    to: Option<&str>,
+) -> Result<Vec<Value>> {
     let mut entries = Vec::new();
+    let mut fetched = 0usize;
     let mut offset = 0u32;
     loop {
         let mut query = base.to_vec();
@@ -1009,17 +1051,22 @@ async fn fetch_all_time_entries(app: &App, base: &[(String, String)]) -> Result<
             && total > MAX_SUMMARY_ENTRIES as u64
         {
             return Err(Error::validation(format!(
-                "time summary would include {total} entries; narrow the date range or filters (maximum {MAX_SUMMARY_ENTRIES})"
+                "time query would scan {total} entries; narrow the filters (maximum {MAX_SUMMARY_ENTRIES})"
             )));
         }
         let page_len = page_entries.len();
-        entries.extend(page_entries);
-        if entries.len() > MAX_SUMMARY_ENTRIES {
+        fetched += page_len;
+        entries.extend(
+            page_entries
+                .into_iter()
+                .filter(|entry| entry_in_time_range(entry, from, to)),
+        );
+        if fetched > MAX_SUMMARY_ENTRIES {
             return Err(Error::validation(format!(
-                "time summary would include more than {MAX_SUMMARY_ENTRIES} entries; narrow the date range or filters"
+                "time query would scan more than {MAX_SUMMARY_ENTRIES} entries; narrow the filters"
             )));
         }
-        if page_len == 0 || total.is_none_or(|total| entries.len() as u64 >= total) {
+        if page_len == 0 || total.is_none_or(|total| fetched as u64 >= total) {
             break;
         }
         offset += page_len as u32;
@@ -2650,8 +2697,8 @@ mod tests {
                 .find(|(name, _)| name == key)
                 .map(|(_, value)| value.as_str())
         };
-        assert_eq!(get("from"), Some("2026-11-01"));
-        assert_eq!(get("to"), Some("2026-11-02"));
+        assert!(get("from").is_none());
+        assert!(get("to").is_none());
         assert_eq!(get("user_id"), Some("35"));
         assert_eq!(get("project_id"), Some("11"));
         assert_eq!(get("activity_id"), Some("9"));
@@ -2661,12 +2708,25 @@ mod tests {
     }
 
     #[test]
-    fn rejects_invalid_time_ranges_before_http() {
-        let args = parse_list_time(json!({ "from": "2026-11-03", "to": "2026-11-02" }));
-        assert!(build_time_entry_query(&args).is_err());
+    fn filters_time_entries_by_exact_spent_on_range() {
+        let entries = [
+            json!({ "spent_on": "2026-11-01", "hours": 1 }),
+            json!({ "spent_on": "2026-11-02", "hours": 2 }),
+            json!({ "spent_on": "2026-11-03", "hours": 3 }),
+        ];
+        let filtered: Vec<_> = entries
+            .iter()
+            .filter(|entry| entry_in_time_range(entry, Some("2026-11-02"), Some("2026-11-02")))
+            .cloned()
+            .collect();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0]["spent_on"], json!("2026-11-02"));
+    }
 
-        let args = parse_list_time(json!({ "from": "2025-02-29" }));
-        assert!(build_time_entry_query(&args).is_err());
+    #[test]
+    fn rejects_invalid_time_ranges_before_http() {
+        assert!(validate_time_range(Some("2026-11-03"), Some("2026-11-02")).is_err());
+        assert!(validate_time_range(Some("2025-02-29"), None).is_err());
 
         assert!(validate_group_by("month").is_err());
     }

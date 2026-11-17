@@ -1075,7 +1075,7 @@ async fn list_time_entries_supports_global_filters_and_compacts_rows() {
     let mock = MockRedmine::new(|request| match request.method.as_str() {
         "GET" => MockResponse::json(
             200,
-            r#"{"time_entries":[{"id":8,"issue":{"id":42},"hours":2,"comments":"ok","spent_on":"2026-11-02","user":{"id":35},"project":{"id":11},"created_on":"2026-11-02T10:00:00Z","activity":{"id":9,"name":"Desarrollo"}}],"total_count":1,"offset":0,"limit":10}"#,
+            r#"{"time_entries":[{"id":8,"issue":{"id":42},"hours":2,"comments":"ok","spent_on":"2026-11-02","user":{"id":35},"project":{"id":11},"created_on":"2026-11-02T10:00:00Z","activity":{"id":9,"name":"Desarrollo"}},{"id":9,"issue":{"id":43},"hours":9,"comments":"out","spent_on":"2026-11-03","activity":{"id":9,"name":"Desarrollo"}}],"total_count":2,"offset":0,"limit":10}"#,
         ),
         _ => MockResponse::json(404, "{}"),
     });
@@ -1096,12 +1096,14 @@ async fn list_time_entries_supports_global_filters_and_compacts_rows() {
     )
     .await;
 
+    assert_eq!(result["time_entries"].as_array().unwrap().len(), 1);
     assert_eq!(result["time_entries"][0]["id"], json!(8));
     assert_eq!(result["time_entries"][0]["issue_id"], json!(42));
+    assert_eq!(result["total_count"], json!(1));
     assert!(result["time_entries"][0].get("user").is_none());
     let request = mock.last_request();
-    assert_eq!(request.query_value("from").as_deref(), Some("2026-11-01"));
-    assert_eq!(request.query_value("to").as_deref(), Some("2026-11-02"));
+    assert!(request.query_value("from").is_none());
+    assert!(request.query_value("to").is_none());
     assert_eq!(request.query_value("user_id").as_deref(), Some("35"));
     assert_eq!(request.query_value("project_id").as_deref(), Some("11"));
     assert_eq!(request.query_value("activity_id").as_deref(), Some("9"));
@@ -1112,7 +1114,7 @@ async fn get_time_summary_groups_by_day() {
     let mock = MockRedmine::new(|request| match request.method.as_str() {
         "GET" => MockResponse::json(
             200,
-            r#"{"time_entries":[{"id":1,"issue":{"id":1},"hours":2,"spent_on":"2026-11-02","activity":{"id":9,"name":"Dev"}},{"id":2,"issue":{"id":2},"hours":3,"spent_on":"2026-11-02","activity":{"id":9,"name":"Dev"}},{"id":3,"issue":{"id":1},"hours":1,"spent_on":"2026-11-01","activity":{"id":9,"name":"Dev"}}],"total_count":3,"offset":0,"limit":100}"#,
+            r#"{"time_entries":[{"id":1,"issue":{"id":1},"hours":2,"spent_on":"2026-11-02","activity":{"id":9,"name":"Dev"}},{"id":2,"issue":{"id":2},"hours":3,"spent_on":"2026-11-02","activity":{"id":9,"name":"Dev"}},{"id":3,"issue":{"id":1},"hours":1,"spent_on":"2026-11-01","activity":{"id":9,"name":"Dev"}},{"id":4,"issue":{"id":1},"hours":9,"spent_on":"2026-11-03","activity":{"id":9,"name":"Dev"}}],"total_count":4,"offset":0,"limit":100}"#,
         ),
         _ => MockResponse::json(404, "{}"),
     });
@@ -1133,8 +1135,8 @@ async fn get_time_summary_groups_by_day() {
     assert_eq!(result["rows"][1]["hours"], json!(5.0));
 
     let request = mock.last_request();
-    assert_eq!(request.query_value("from").as_deref(), Some("2026-11-01"));
-    assert_eq!(request.query_value("to").as_deref(), Some("2026-11-02"));
+    assert!(request.query_value("from").is_none());
+    assert!(request.query_value("to").is_none());
     assert_eq!(request.query_value("limit").as_deref(), Some("100"));
 }
 
