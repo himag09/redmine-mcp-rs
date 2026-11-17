@@ -19,7 +19,7 @@ process (Claude Desktop, Cursor, DeepSeek Harness, ...) can work with Redmine.
   pagination, text search uses Redmine's native `~` operator, `read_issue`
   supports journals and allowed statuses, and dates/ranges are checked.
 - **Official MCP SDK.** The protocol and stdio transport use
-  [`rmcp`](https://crates.io/crates/rmcp) 3.8; the Redmine client, validation and
+  [`rmcp`](https://crates.io/crates/rmcp) 3.11; the Redmine client, validation and
   tool handlers stay in this crate and are independently tested.
 - **Small dependency surface.** tokio, rmcp, reqwest (rustls), serde, base64,
   dotenvy and url.
@@ -27,7 +27,7 @@ process (Claude Desktop, Cursor, DeepSeek Harness, ...) can work with Redmine.
   suite does not need a Redmine instance, an API key or external network access.
 
 Startup benchmark: process start through `initialize` and `tools/list`, median
-of 10 runs on Apple Silicon macOS with Rust 1.99.1 and rmcp 3.8, with no network
+of 10 runs on Apple Silicon macOS with Rust 1.99.1 and rmcp 3.11, with no network
 requests.
 
 ## Requirements
@@ -57,9 +57,9 @@ Rust, Cargo and a compiler are not required for these binaries.
 For example, on Apple Silicon macOS:
 
 ```bash
-shasum -a 256 -c redmine-mcp-rs-v1.4.0-aarch64-apple-darwin.sha256
-tar -xzf redmine-mcp-rs-v1.4.0-aarch64-apple-darwin.tar.gz
-./redmine-mcp-rs-v1.4.0-aarch64-apple-darwin/redmine-mcp-rs --version
+shasum -a 256 -c redmine-mcp-rs-v1.4.1-aarch64-apple-darwin.sha256
+tar -xzf redmine-mcp-rs-v1.4.1-aarch64-apple-darwin.tar.gz
+./redmine-mcp-rs-v1.4.1-aarch64-apple-darwin/redmine-mcp-rs --version
 ```
 
 macOS artifacts are not code-signed; Gatekeeper may require right-click → Open or

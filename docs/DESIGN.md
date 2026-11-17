@@ -51,7 +51,7 @@ workflow. Add them as separate tools when a concrete workflow needs them.
 
 ## Protocol compatibility
 
-The MCP layer is the official [`rmcp`](https://crates.io/crates/rmcp) 3.8 SDK over
+The MCP layer is the official [`rmcp`](https://crates.io/crates/rmcp) 3.11 SDK over
 stdio. `rmcp` owns the lifecycle, protocol negotiation (up to `2026-07-28`),
 JSON-RPC framing, notifications and error semantics. `src/server.rs` adapts our
 tool registry to `ServerHandler` and keeps all Redmine behavior in this crate.

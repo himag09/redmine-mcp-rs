@@ -105,7 +105,7 @@ numbers on your checkout.
 
 ### MCP transport (`src/server.rs` and `tests/stdio.rs`)
 
-- The protocol/transport layer is the official `rmcp` 3.8 SDK; the tests drive
+- The protocol/transport layer is the official `rmcp` 3.11 SDK; the tests drive
   it through the real binary over stdio.
 - `initialize`/version negotiation, `tools/list` and read-only filtering.
 - `tools/call`: success content, tool errors as `isError`, unknown tools and

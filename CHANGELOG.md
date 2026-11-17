@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## 1.4.1 - 2026-11-17
+
+### Security
+
+- Upgrade `rmcp` to 3.11.0 to address RUSTSEC-2026-0462, an unbounded response
+  body issue in the Streamable HTTP client transports (not used by this stdio
+  server, but removed to keep the RustSec audit clean).
+
 ## 1.4.0 - 2026-11-17
 
 ### Added
