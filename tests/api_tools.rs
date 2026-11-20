@@ -1191,6 +1191,70 @@ async fn get_time_summary_rejects_invalid_arguments_before_http() {
 }
 
 #[tokio::test]
+async fn update_issue_note_puts_new_notes() {
+    let mock = MockRedmine::new(
+        |request| match (request.method.as_str(), request.path.as_str()) {
+            ("PUT", "/journals/7.json") => MockResponse::empty(204),
+            _ => MockResponse::json(404, "{}"),
+        },
+    );
+    let app = test_app(&mock, false);
+
+    let result = call(
+        &app,
+        "update_issue_note",
+        json!({ "journal_id": 7, "notes": "Corrección: texto nuevo" }),
+    )
+    .await;
+
+    assert_eq!(result["id"], json!(7));
+    assert_eq!(result["succeeded"], json!(true));
+    let request = mock.last_request();
+    assert_eq!(request.method, "PUT");
+    assert_eq!(request.path, "/journals/7.json");
+    assert_eq!(
+        request.json_body()["journal"]["notes"],
+        json!("Corrección: texto nuevo")
+    );
+}
+
+#[tokio::test]
+async fn delete_issue_note_clears_notes_without_delete_endpoint() {
+    let mock = MockRedmine::new(
+        |request| match (request.method.as_str(), request.path.as_str()) {
+            ("PUT", "/journals/7.json") => MockResponse::empty(204),
+            _ => MockResponse::json(404, "{}"),
+        },
+    );
+    let app = test_app(&mock, false);
+
+    let result = call(&app, "delete_issue_note", json!({ "journal_id": 7 })).await;
+
+    assert_eq!(result["id"], json!(7));
+    assert_eq!(result["cleared"], json!(true));
+    assert_eq!(result["journal_deleted"], json!(false));
+    let request = mock.last_request();
+    assert_eq!(request.method, "PUT");
+    assert_eq!(request.path, "/journals/7.json");
+    assert_eq!(request.json_body()["journal"]["notes"], json!(""));
+}
+
+#[tokio::test]
+async fn note_updates_validate_before_http() {
+    let mock = MockRedmine::new(|_| MockResponse::empty(204));
+    let app = test_app(&mock, false);
+
+    for args in [
+        json!({ "journal_id": 0, "notes": "x" }),
+        json!({ "journal_id": 7, "notes": "   " }),
+        json!({ "journal_id": 0 }),
+    ] {
+        assert!(tools::call(&app, "update_issue_note", args).await.is_err());
+    }
+    assert_eq!(mock.request_count(), 0);
+}
+
+#[tokio::test]
 async fn search_rejects_invalid_arguments_before_http() {
     let mock = MockRedmine::new(|_| MockResponse::json(200, r#"{"results":[]}"#));
     let app = test_app(&mock, false);

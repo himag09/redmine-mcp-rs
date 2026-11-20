@@ -73,6 +73,8 @@ pub fn is_write(name: &str) -> bool {
             | "delete_time_entry"
             | "add_issue_relation"
             | "delete_issue_relation"
+            | "update_issue_note"
+            | "delete_issue_note"
     )
 }
 
@@ -100,6 +102,8 @@ pub fn is_known(name: &str) -> bool {
             | "delete_issue_relation"
             | "list_project_members"
             | "get_time_summary"
+            | "update_issue_note"
+            | "delete_issue_note"
     )
 }
 
@@ -114,6 +118,8 @@ pub fn specs(read_only: bool) -> Vec<Value> {
         list_time_entries_spec(),
         get_time_summary_spec(),
         add_issue_note_spec(),
+        update_issue_note_spec(),
+        delete_issue_note_spec(),
         transition_issue_spec(),
         find_issues_spec(),
         search_spec(),
@@ -156,6 +162,8 @@ pub async fn call(app: &App, name: &str, args: Value) -> Result<Value> {
         "list_time_entries" => list_time_entries(app, args).await,
         "get_time_summary" => get_time_summary(app, args).await,
         "add_issue_note" => add_issue_note(app, args).await,
+        "update_issue_note" => update_issue_note(app, args).await,
+        "delete_issue_note" => delete_issue_note(app, args).await,
         "transition_issue" => transition_issue(app, args).await,
         "find_issues" => find_issues(app, args).await,
         "search" => search(app, args).await,
@@ -321,6 +329,28 @@ async fn add_issue_note(app: &App, args: Value) -> Result<Value> {
         .add_note(args.issue_id, &notes, args.private_notes.unwrap_or(false))
         .await?;
     refetch_issue(app, args.issue_id, "add_issue_note").await
+}
+
+async fn update_issue_note(app: &App, args: Value) -> Result<Value> {
+    let args: UpdateNoteArgs = parse_args("update_issue_note", args)?;
+    ensure_positive("journal_id", args.journal_id)?;
+    let notes = validate_non_empty("notes", &args.notes)?;
+    app.client
+        .update_journal_notes(args.journal_id, &notes)
+        .await?;
+    Ok(json!({ "id": args.journal_id, "succeeded": true }))
+}
+
+async fn delete_issue_note(app: &App, args: Value) -> Result<Value> {
+    let args: DeleteNoteArgs = parse_args("delete_issue_note", args)?;
+    ensure_positive("journal_id", args.journal_id)?;
+    app.client.update_journal_notes(args.journal_id, "").await?;
+    Ok(json!({
+        "id": args.journal_id,
+        "cleared": true,
+        "journal_deleted": false,
+        "warning": "Redmine has no REST delete for journals; the note text was cleared and the journal record remains."
+    }))
 }
 
 async fn transition_issue(app: &App, args: Value) -> Result<Value> {
@@ -555,6 +585,19 @@ struct AddNoteArgs {
     issue_id: u64,
     notes: String,
     private_notes: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UpdateNoteArgs {
+    journal_id: u64,
+    notes: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeleteNoteArgs {
+    journal_id: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1973,6 +2016,41 @@ fn add_issue_note_spec() -> Value {
     })
 }
 
+fn update_issue_note_spec() -> Value {
+    json!({
+        "name": "update_issue_note",
+        "title": "Update issue note",
+        "description": "Edit the text of an existing issue journal note. Get journal ids from read_issue with include=[\"journals\"]. Requires Redmine 5.0+ and the edit_issue_notes permission. WARNING: writes to the configured Redmine instance; call it only after the user explicitly confirms the exact note.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "journal_id": id_prop("Journal id from read_issue include=journals."),
+                "notes": { "type": "string", "minLength": 1, "description": "New note text." }
+            },
+            "required": ["journal_id", "notes"],
+            "additionalProperties": false
+        },
+        "annotations": write_annotations(true, true)
+    })
+}
+
+fn delete_issue_note_spec() -> Value {
+    json!({
+        "name": "delete_issue_note",
+        "title": "Clear issue note",
+        "description": "Clear the text of an existing issue journal note. Redmine has no REST delete for journals: the note text is set to empty and the journal record remains. Requires Redmine 5.0+ and the edit_issue_notes permission. WARNING: destructive write to the configured Redmine instance; call it only after the user explicitly confirms the exact note.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "journal_id": id_prop("Journal id from read_issue include=journals.")
+            },
+            "required": ["journal_id"],
+            "additionalProperties": false
+        },
+        "annotations": write_annotations(true, true)
+    })
+}
+
 fn transition_issue_spec() -> Value {
     json!({
         "name": "transition_issue",
@@ -2543,7 +2621,7 @@ mod tests {
     fn read_only_mode_hides_write_tools() {
         let all = specs(false);
         let reads = specs(true);
-        assert_eq!(all.len(), 21);
+        assert_eq!(all.len(), 23);
         assert_eq!(reads.len(), 11);
         assert!(
             reads

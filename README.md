@@ -57,9 +57,9 @@ Rust, Cargo and a compiler are not required for these binaries.
 For example, on Apple Silicon macOS:
 
 ```bash
-shasum -a 256 -c redmine-mcp-rs-v1.4.2-aarch64-apple-darwin.sha256
-tar -xzf redmine-mcp-rs-v1.4.2-aarch64-apple-darwin.tar.gz
-./redmine-mcp-rs-v1.4.2-aarch64-apple-darwin/redmine-mcp-rs --version
+shasum -a 256 -c redmine-mcp-rs-v1.5.0-aarch64-apple-darwin.sha256
+tar -xzf redmine-mcp-rs-v1.5.0-aarch64-apple-darwin.tar.gz
+./redmine-mcp-rs-v1.5.0-aarch64-apple-darwin/redmine-mcp-rs --version
 ```
 
 macOS artifacts are not code-signed; Gatekeeper may require right-click → Open or
@@ -158,7 +158,7 @@ minimal `PATH`, so a bare `redmine-mcp-rs` may not resolve.
 ```
 
 Set `REDMINE_READ_ONLY=true` when the client only needs to read. It removes the
-ten write tools from `tools/list` and rejects direct calls to them.
+twelve write tools from `tools/list` and rejects direct calls to them.
 
 ## Tools
 
@@ -178,6 +178,8 @@ ten write tools from `tools/list` and rejects direct calls to them.
 | `create_issue` | **write** | Create an issue. |
 | `update_issue` | **write** | Update fields and/or add a comment. |
 | `add_issue_note` | **write** | Add a comment. |
+| `update_issue_note` | **write** | Edit an existing issue note by journal id. |
+| `delete_issue_note` | **write** | Clear an issue note; Redmine keeps the journal record. |
 | `transition_issue` | **write** | Change the status (workflow rules apply). |
 | `add_attachment` | **write** | Upload one file (base64) and attach it. |
 | `log_time` | **write** | Log spent hours on an issue. |
@@ -216,6 +218,11 @@ can apply their own approval policies.
   why. Projects and users are limited to the first 100; the warning explains
   the truncation (and points to `list_projects` for project pagination).
   `time_entry_activities` is the list of activity ids accepted by `log_time`.
+- **Issue notes** are journals. `add_issue_note` adds one; `read_issue` with
+  `include: ["journals"]` returns journal ids; `update_issue_note` edits the note
+  text and `delete_issue_note` clears it. Redmine has no REST delete for journals,
+  so clearing a note leaves the journal record. Requires Redmine 5.0+ and the
+  `edit_issue_notes` permission.
 - **Time entries** are separate from `estimated_hours`. `log_time` requires
   `activity_id`, logs more than 0 and at most 24 hours, and accepts optional
   `spent_on` and `comments`. `list_time_entries` works globally or filtered by
@@ -251,7 +258,7 @@ can apply their own approval policies.
   `http` → `https` upgrade on the same host); cross-origin and HTTPS→HTTP
   redirects are refused. Writes never follow redirects, so a write cannot be
   replayed at a different endpoint.
-- **Read-only mode.** `REDMINE_READ_ONLY=true` removes and rejects the ten write
+- **Read-only mode.** `REDMINE_READ_ONLY=true` removes and rejects the twelve write
   tools. Recommended for production instances that agents should not modify.
 - **Confirmation is the client's job.** Mutating tools carry MCP annotations
   (`destructiveHint` for updates/transitions) and the MCP `instructions` warn
@@ -343,8 +350,8 @@ cargo run --release -- --check
 
 - stdio transport only (no Streamable HTTP/SSE).
 - No attachment download; `add_attachment` is upload-only.
-- No issue deletion, relation updates, time-entry bulk operations, watcher
-  removal or project administration.
+- No issue deletion, true journal deletion (notes can only be cleared), relation
+  updates, time-entry bulk operations, watcher removal or project administration.
 - Setting nullable ids (assignee, version, category) is supported; clearing them
   is not exposed. Dates can be cleared with an empty string.
 - API-key authentication only (no OAuth).

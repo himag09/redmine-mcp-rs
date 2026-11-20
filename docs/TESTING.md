@@ -24,9 +24,9 @@ cargo test --locked -- --nocapture        # show stdout from failing tests
 | --- | --- | ---: | --- |
 | Unit | `src/**` `#[cfg(test)]` modules | 53 | none |
 | CLI | `src/main.rs` tests | 1 | none |
-| Integration | `tests/api_tools.rs` | 41 | localhost mock only |
+| Integration | `tests/api_tools.rs` | 44 | localhost mock only |
 | End-to-end | `tests/stdio.rs` | 14 | localhost mock only |
-| **Total** | | **109** | |
+| **Total** | | **112** | |
 
 Counts are from the current suite; use `cargo test --locked` to see the exact
 numbers on your checkout.
@@ -90,6 +90,8 @@ numbers on your checkout.
 - `update_issue`: partial payloads, empty description/date handling, notes,
   private notes, re-read fallback that preserves write success.
 - `add_issue_note` / `transition_issue`: payloads and pre-HTTP validation.
+- `update_issue_note` / `delete_issue_note`: PUT `/journals/{id}.json`, empty
+  notes for clearing, validation and no-delete-endpoint semantics.
 - `add_attachment`: plain base64 and data URI, filename/content-type validation,
   upload token flow, invalid base64 rejection.
 - Time entries: `POST`, `PUT` and `DELETE /time_entries/{id}.json`, `GET

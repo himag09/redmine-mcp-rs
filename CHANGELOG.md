@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## 1.5.0 - 2026-11-19
+
+### Added
+
+- `update_issue_note` and `delete_issue_note` for Redmine 5.0+ journals.
+  `delete_issue_note` clears the note text; Redmine has no REST delete for
+  journals, so the journal record remains.
+- Tests now cover 112 cases across unit, mock-HTTP and stdio layers.
+
 ## 1.4.2 - 2026-11-17
 
 ### Fixed

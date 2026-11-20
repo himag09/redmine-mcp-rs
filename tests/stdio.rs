@@ -160,7 +160,7 @@ fn initialize_and_list_tools() {
     let list = process.recv();
     assert_eq!(list["id"], json!(2));
     let tools = list["result"]["tools"].as_array().expect("tools array");
-    assert_eq!(tools.len(), 21);
+    assert_eq!(tools.len(), 23);
 
     let read_issue = tools
         .iter()

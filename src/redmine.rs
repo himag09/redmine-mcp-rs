@@ -324,6 +324,15 @@ impl RedmineClient {
         self.update_issue(issue_id, &issue).await
     }
 
+    pub async fn update_journal_notes(&self, journal_id: u64, notes: &str) -> Result<Value> {
+        self.send_json(
+            Method::PUT,
+            &format!("journals/{journal_id}.json"),
+            &json!({ "journal": { "notes": notes } }),
+        )
+        .await
+    }
+
     pub async fn transition_issue(
         &self,
         issue_id: u64,

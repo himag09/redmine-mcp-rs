@@ -839,7 +839,7 @@ dependencies = [
 
 [[package]]
 name = "redmine-mcp-rs"
-version = "1.4.2"
+version = "1.5.0"
 dependencies = [
  "base64 0.23.1",
  "dotenvy",

@@ -31,10 +31,10 @@ tools for agents that need to update issues.
 
 ## Tool surface
 
-The server exposes 21 tools: 11 read-only and 10 write tools. The read side covers
+The server exposes 23 tools: 11 read-only and 12 write tools. The read side covers
 projects, issues, search, reference data, versions, categories, time entries
 (including compact summary), and project members. The write side covers issue
-creation, updates, notes, transitions, attachments, time entry
+creation, updates, note add/edit/clear, transitions, attachments, time entry
 creation/updates/deletion, and issue relation creation/deletion.
 
 `search` was added after the review because `find_issues` only searches the
@@ -42,10 +42,10 @@ subject with Redmine's `~` operator. The global search endpoint covers issue
 descriptions, comments, wiki pages, news, documents, changesets, messages and
 projects. It is read-only, paginated and origin-checked.
 
-The write surface stays deliberately small: issue changes, notes, transitions,
-attachments, time entries, and issue relation creation/deletion. We intentionally
-did **not** add relation updates, news, wiki editing, issue deletions, watcher
-removal or project administration. They are valid Redmine features, but each
+The write surface stays deliberately small: issue changes, note add/edit/clear,
+transitions, attachments, time entries, and issue relation creation/deletion. We
+intentionally did **not** add true journal deletion, relation updates, news, wiki
+editing, issue deletions, watcher removal or project administration. They are valid Redmine features, but each
 one adds schema and context cost, and the example's goal is a focused issue
 workflow. Add them as separate tools when a concrete workflow needs them.
 
@@ -62,7 +62,7 @@ an end-to-end test that sends a >16 MiB line.
 
 Compatibility was verified with the client DSH uses
 (`@modelcontextprotocol/client` 2.2.0, `versionNegotiation: auto`): the
-handshake succeeded, `tools/list` returned 21 tools and `list_projects` read
+handshake succeeded, `tools/list` returned 23 tools and `list_projects` read
 real Redmine data.
 
 The typed `#[tool_router]`/`schemars` layer of `rmcp` is not used: the explicit
